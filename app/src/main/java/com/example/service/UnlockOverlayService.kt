@@ -68,11 +68,16 @@ class UnlockOverlayService : Service() {
 
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                startForeground(
-                    1001,
-                    notification,
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-                )
+                try {
+                    startForeground(
+                        1001,
+                        notification,
+                        android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
+                    )
+                } catch (t: Throwable) {
+                    android.util.Log.w("UnlockOverlayService", "specialUse FGS type rejected, falling back to standard startForeground", t)
+                    startForeground(1001, notification)
+                }
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
                     1001,
@@ -82,8 +87,8 @@ class UnlockOverlayService : Service() {
             } else {
                 startForeground(1001, notification)
             }
-        } catch (e: Exception) {
-            android.util.Log.e("UnlockOverlayService", "Failed to start foreground service", e)
+        } catch (t: Throwable) {
+            android.util.Log.e("UnlockOverlayService", "Failed to start foreground notification", t)
         }
     }
 

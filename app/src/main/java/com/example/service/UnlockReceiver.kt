@@ -52,8 +52,8 @@ class UnlockReceiver : BroadcastReceiver() {
             } else {
                 context.startService(serviceIntent)
             }
-        } catch (e: Exception) {
-            Log.e("UnlockReceiver", "Failed to start overlay service: ${e.message}")
+        } catch (t: Throwable) {
+            Log.e("UnlockReceiver", "Failed to start overlay service: ${t.message}")
         }
     }
 
