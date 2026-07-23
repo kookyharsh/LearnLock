@@ -23,14 +23,105 @@ class GeminiConceptGenerator(
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
 
+    suspend fun testApiKeyConnection(): Pair<Boolean, String> = withContext(Dispatchers.IO) {
+        val apiKey = prefsManager.getApiKey().trim()
+        if (apiKey.isBlank()) {
+            return@withContext Pair(false, "API Key is empty. Please enter your key.")
+        }
+
+        val testPrompt = "Return JSON array: [{\"topic\": \"Test\", \"conceptTitle\": \"Test\", \"conceptSummary\": \"Test summary\", \"codeExample\": null, \"questionType\": \"MCQ\", \"questionText\": \"Test?\", \"options\": [\"A\", \"B\", \"C\", \"D\"], \"codeSnippetPrefix\": null, \"correctAnswer\": \"0\", \"explanation\": \"Test explanation\"}]"
+
+        try {
+            val configuredModel = prefsManager.getCustomModel().ifBlank { null }
+            val requestBuilder = Request.Builder()
+            val response = if (apiKey.startsWith("sk-or-")) {
+                // OpenRouter endpoint
+                val modelName = configuredModel ?: "google/gemini-2.5-flash"
+                val jsonPayload = JSONObject().apply {
+                    put("model", modelName)
+                    put("messages", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("role", "user")
+                            put("content", testPrompt)
+                        })
+                    })
+                    put("temperature", 0.7)
+                }
+                requestBuilder.url("https://openrouter.ai/api/v1/chat/completions")
+                    .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                    .addHeader("Authorization", "Bearer $apiKey")
+                    .addHeader("HTTP-Referer", "https://unlocklearn.app")
+                    .addHeader("X-Title", "UnlockLearn")
+                    .build()
+                client.newCall(requestBuilder.build()).execute()
+            } else if (apiKey.startsWith("sk-")) {
+                // OpenAI endpoint
+                val modelName = configuredModel ?: "gpt-4o-mini"
+                val jsonPayload = JSONObject().apply {
+                    put("model", modelName)
+                    put("messages", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("role", "user")
+                            put("content", testPrompt)
+                        })
+                    })
+                    put("temperature", 0.7)
+                }
+                requestBuilder.url("https://api.openai.com/v1/chat/completions")
+                    .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                    .addHeader("Authorization", "Bearer $apiKey")
+                    .build()
+                client.newCall(requestBuilder.build()).execute()
+            } else {
+                // Google Gemini endpoint
+                val modelName = configuredModel ?: "gemini-1.5-flash"
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+                val jsonPayload = JSONObject().apply {
+                    put("contents", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("parts", JSONArray().apply {
+                                put(JSONObject().apply {
+                                    put("text", testPrompt)
+                                })
+                            })
+                        })
+                    })
+                }
+                requestBuilder.url(url)
+                    .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                    .build()
+                client.newCall(requestBuilder.build()).execute()
+            }
+
+            val responseBody = response.body?.string()
+            if (!response.isSuccessful) {
+                val errDetail = try {
+                    val errJson = JSONObject(responseBody ?: "")
+                    errJson.optJSONObject("error")?.optString("message") ?: "HTTP ${response.code}"
+                } catch (e: Exception) {
+                    "HTTP ${response.code}: ${response.message}"
+                }
+                return@withContext Pair(false, "Connection failed: $errDetail")
+            }
+
+            if (responseBody.isNullOrBlank()) {
+                return@withContext Pair(false, "Received empty response from provider.")
+            }
+
+            return@withContext Pair(true, "API Key Verified & Connected Successfully!")
+        } catch (e: Exception) {
+            return@withContext Pair(false, "Network error: ${e.message}")
+        }
+    }
+
     suspend fun generateBatchConcepts(
         topics: Set<String>,
         count: Int = 3
     ): List<ConceptItem> = withContext(Dispatchers.IO) {
-        val apiKey = prefsManager.getApiKey()
+        val apiKey = prefsManager.getApiKey().trim()
         if (apiKey.isBlank()) {
-            Log.w("GeminiGenerator", "No API Key available, generating local fallback concepts.")
-            return@withContext getFallbackConcepts(topics, count)
+            Log.w("GeminiGenerator", "No API Key configured.")
+            return@withContext emptyList<ConceptItem>()
         }
 
         val topicList = if (topics.isEmpty()) listOf("React", "SQL", "DSA", "Python") else topics.toList()
@@ -78,13 +169,51 @@ class GeminiConceptGenerator(
 
         try {
             var textResponse = ""
+            val configuredModel = prefsManager.getCustomModel().ifBlank { null }
             val requestBuilder = Request.Builder()
             
-            if (apiKey.startsWith("sk-")) {
-                // OpenAI format (auto-detected via sk- prefix)
+            if (apiKey.startsWith("sk-or-")) {
+                // OpenRouter endpoint
+                val modelName = configuredModel ?: "google/gemini-2.5-flash"
+                val url = "https://openrouter.ai/api/v1/chat/completions"
+                val jsonPayload = JSONObject().apply {
+                    put("model", modelName)
+                    put("messages", JSONArray().apply {
+                        put(JSONObject().apply {
+                            put("role", "user")
+                            put("content", prompt)
+                        })
+                    })
+                    put("temperature", 0.7)
+                }
+                
+                requestBuilder.url(url)
+                    .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                    .addHeader("Authorization", "Bearer $apiKey")
+                    .addHeader("HTTP-Referer", "https://unlocklearn.app")
+                    .addHeader("X-Title", "UnlockLearn")
+                    
+                val response = client.newCall(requestBuilder.build()).execute()
+                val responseBody = response.body?.string()
+
+                if (!response.isSuccessful || responseBody.isNullOrBlank()) {
+                    Log.e("GeminiGenerator", "OpenRouter request failed code=${response.code}, body=$responseBody")
+                    return@withContext emptyList<ConceptItem>()
+                }
+
+                val rootJson = JSONObject(responseBody)
+                val choices = rootJson.optJSONArray("choices")
+                if (choices == null || choices.length() == 0) {
+                    return@withContext emptyList<ConceptItem>()
+                }
+                textResponse = choices.getJSONObject(0).optJSONObject("message")?.optString("content") ?: ""
+
+            } else if (apiKey.startsWith("sk-")) {
+                // OpenAI format
+                val modelName = configuredModel ?: "gpt-4o-mini"
                 val url = "https://api.openai.com/v1/chat/completions"
                 val jsonPayload = JSONObject().apply {
-                    put("model", "gpt-3.5-turbo") // Default model for OpenAI format
+                    put("model", modelName)
                     put("messages", JSONArray().apply {
                         put(JSONObject().apply {
                             put("role", "user")
@@ -102,20 +231,21 @@ class GeminiConceptGenerator(
                 val responseBody = response.body?.string()
 
                 if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                    Log.e("GeminiGenerator", "OpenAI request failed code=${response.code}, falling back.")
-                    return@withContext getFallbackConcepts(topics, count)
+                    Log.e("GeminiGenerator", "OpenAI request failed code=${response.code}, body=$responseBody")
+                    return@withContext emptyList<ConceptItem>()
                 }
 
                 val rootJson = JSONObject(responseBody)
                 val choices = rootJson.optJSONArray("choices")
                 if (choices == null || choices.length() == 0) {
-                    return@withContext getFallbackConcepts(topics, count)
+                    return@withContext emptyList<ConceptItem>()
                 }
                 textResponse = choices.getJSONObject(0).optJSONObject("message")?.optString("content") ?: ""
 
             } else {
                 // Gemini format (default for non-sk keys)
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey"
+                val modelName = configuredModel ?: "gemini-1.5-flash"
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
                 
                 val jsonPayload = JSONObject().apply {
                     put("contents", JSONArray().apply {
@@ -140,14 +270,14 @@ class GeminiConceptGenerator(
                 val responseBody = response.body?.string()
 
                 if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                    Log.e("GeminiGenerator", "Gemini request failed code=${response.code}, falling back.")
-                    return@withContext getFallbackConcepts(topics, count)
+                    Log.e("GeminiGenerator", "Gemini request failed code=${response.code}, body=$responseBody")
+                    return@withContext emptyList<ConceptItem>()
                 }
 
                 val rootJson = JSONObject(responseBody)
                 val candidates = rootJson.optJSONArray("candidates")
                 if (candidates == null || candidates.length() == 0) {
-                    return@withContext getFallbackConcepts(topics, count)
+                    return@withContext emptyList<ConceptItem>()
                 }
 
                 val content = candidates.getJSONObject(0).optJSONObject("content")
@@ -186,75 +316,50 @@ class GeminiConceptGenerator(
                 )
             }
 
-            if (results.isNotEmpty()) results else getFallbackConcepts(topics, count)
+            results
         } catch (e: Exception) {
             Log.e("GeminiGenerator", "Error calling Gemini API: ${e.message}", e)
-            getFallbackConcepts(topics, count)
+            emptyList<ConceptItem>()
         }
     }
 
-    private fun getFallbackConcepts(topics: Set<String>, count: Int): List<ConceptItem> {
-        val topicList = if (topics.isEmpty()) listOf("React", "SQL", "DSA", "Python", "Next.js") else topics.toList()
-        val seeds = listOf(
-            ConceptItem(
-                topic = "React",
-                conceptTitle = "What is useEffect?",
-                conceptSummary = "The `useEffect` hook is an essential part of React's functional component architecture, designed to manage side effects that do not directly relate to the rendering of the UI. When building modern applications, you frequently need to synchronize a component with external systems—this could involve fetching data from a REST API or a GraphQL endpoint, setting up subscriptions or event listeners, or manually interacting with the DOM. Unlike class components where developers used separate lifecycle methods such as `componentDidMount`, `componentDidUpdate`, and `componentWillUnmount` to handle these various stages, `useEffect` consolidates all these capabilities into a single API. \n\nThe hook accepts two arguments: a callback function containing the imperative, potentially effectful code, and an optional dependency array. The dependency array is a crucial mechanism that dictates exactly when the effect should re-run. If you omit the array, the effect runs after every single render, which can lead to performance issues or infinite loops if not handled carefully. If you provide an empty array `[]`, React will only execute the effect once, immediately after the initial render, perfectly mirroring the behavior of `componentDidMount`. If the array contains specific variables, the effect will only re-run if any of those variables change between renders. This granular control allows developers to optimize rendering performance while ensuring the component's state accurately reflects the external data source.",
-                codeExample = "useEffect(() => {\n  const timer = setInterval(() => {\n    setCount(c => c + 1);\n  }, 1000);\n  return () => clearInterval(timer);\n}, []);",
-                questionType = "MCQ",
-                questionText = "When does a useEffect with an empty dependency array [] run?",
-                optionsJson = "[\"Only once when component mounts\", \"On every re-render\", \"Only when props change\", \"Never\"]",
-                correctAnswer = "0",
-                explanation = "An empty dependency array [] tells React to run the effect only once when the component mounts onto the screen."
-            ),
-            ConceptItem(
-                topic = "SQL",
-                conceptTitle = "Filtering Records with WHERE",
-                conceptSummary = "The `WHERE` clause is a fundamental component of SQL (Structured Query Language), essential for precise data retrieval and manipulation. When dealing with vast databases containing thousands or millions of rows, querying the entire dataset is rarely practical or efficient. The `WHERE` clause acts as a powerful filter, instructing the database engine to isolate and return only the specific rows that satisfy a predefined condition or set of conditions. It is most commonly used in conjunction with `SELECT` statements to extract relevant information, but it is equally critical when executing `UPDATE` or `DELETE` commands to ensure you only modify or remove the intended records, preventing catastrophic data loss.\n\nThe condition specified within the `WHERE` clause evaluates to a boolean value: TRUE, FALSE, or UNKNOWN (in the case of NULLs). SQL provides a rich set of operators to construct these conditions, ranging from simple comparison operators like `=` (equal to), `<>` or `!=` (not equal to), `>`, `<`, `>=`, and `<=`, to more complex logical operators like `AND`, `OR`, and `NOT`, which allow you to combine multiple criteria. You can also utilize specialized operators such as `IN` to match against a list of values, `BETWEEN` to find values within a range, and `LIKE` for pattern matching with wildcards (e.g., finding all names starting with 'A'). By mastering the `WHERE` clause, developers and data analysts can efficiently query subsets of data, ensuring high performance and accurate data analysis.",
-                codeExample = "SELECT employee_id, first_name, department\nFROM employees\nWHERE salary > 50000 AND department = 'Engineering';",
-                questionType = "CODE",
-                questionText = "Complete the SQL query to select all users from 'users' table where age is greater than 21.",
-                codeSnippetPrefix = "SELECT * FROM users WHERE ",
-                correctAnswer = "age > 21",
-                explanation = "Filtering by 'age > 21' ensures only rows matching that boolean expression are returned from the users table."
-            ),
-            ConceptItem(
-                topic = "Python",
-                conceptTitle = "List Comprehensions",
-                conceptSummary = "List comprehensions represent one of Python's most elegant, expressive, and distinctive features, providing a concise, readable syntax for creating new lists based on the values of existing iterable objects (like lists, tuples, or strings). Traditionally, creating a modified list requires instantiating an empty list, establishing a `for` loop, conditionally evaluating each item, and calling the `.append()` method. List comprehensions condense this entire multi-line process into a single, highly readable line of code.\n\nThe basic syntax follows the pattern: `[expression for item in iterable if condition]`. This structure allows you to simultaneously map (apply a transformation via the expression) and filter (apply a restriction via the condition) the data. Because list comprehensions are optimized at the C level within the standard CPython interpreter, they are generally faster and more memory-efficient than their equivalent `for` loop counterparts. However, developers must exercise caution: while list comprehensions are fantastic for simple to moderately complex transformations, nesting multiple comprehensions or incorporating excessively complex logic can severely degrade code readability. In such cases, falling back to a standard loop or utilizing generator expressions (which evaluate lazily and save memory) is often the more pythonic and maintainable choice.",
-                codeExample = "even_squares = [x**2 for x in range(10) if x % 2 == 0]",
-                questionType = "MCQ",
-                questionText = "What will `[x for x in range(5) if x % 2 == 0]` produce in Python?",
-                optionsJson = "[\"[0, 2, 4]\", \"[1, 3, 5]\", \"[0, 1, 2, 3, 4]\", \"[2, 4]\"]",
-                correctAnswer = "0",
-                explanation = "range(5) evaluates integers 0, 1, 2, 3, 4. The condition `x % 2 == 0` filters even numbers, resulting in [0, 2, 4]."
-            ),
-            ConceptItem(
-                topic = "DSA",
-                conceptTitle = "Binary Search Complexity",
-                conceptSummary = "Binary Search is a foundational algorithm in computer science, celebrated for its incredible efficiency when searching for a specific target value within a sorted collection, typically an array. Unlike linear search, which must painstakingly iterate through every single element one by one (resulting in a time complexity of O(N)), binary search employs a powerful divide-and-conquer strategy that drastically reduces the search space.\n\nThe algorithm operates by maintaining two pointers—a 'low' and a 'high'—that represent the current bounds of the search space. It calculates the midpoint and compares the element at that index to the target value. If the target matches the midpoint, the search concludes successfully. If the target is smaller, the algorithm intelligently discards the entire upper half of the array by moving the 'high' pointer just below the midpoint. Conversely, if the target is larger, it discards the lower half by moving the 'low' pointer just above the midpoint. This process of halving the search space repeats until the target is found or the pointers cross (indicating the target is not present). Because the dataset is divided by two at each step, the maximum number of iterations required is proportional to the base-2 logarithm of the number of elements. Thus, it achieves a worst-case time complexity of O(log N). To put this immense efficiency into perspective: searching through one million sorted items would require at most 20 comparisons, whereas linear search might require one million.",
-                codeExample = "def binary_search(arr, target):\n    low, high = 0, len(arr) - 1\n    while low <= high:\n        mid = (low + high) // 2\n        if arr[mid] == target:\n            return mid\n        elif arr[mid] < target:\n            low = mid + 1\n        else:\n            high = mid - 1\n    return -1",
-                questionType = "MCQ",
-                questionText = "What is the worst-case time complexity of Binary Search on a sorted array of size N?",
-                optionsJson = "[\"O(log N)\", \"O(N)\", \"O(N^2)\", \"O(1)\"]",
-                correctAnswer = "0",
-                explanation = "By halving the array size at each step, Binary Search completes in at most log2(N) steps."
-            ),
-            ConceptItem(
-                topic = "Next.js",
-                conceptTitle = "React Server Components",
-                conceptSummary = "React Server Components (RSC) represent a paradigm shift in how modern React applications are architected, moving away from entirely client-side rendering towards a more balanced, server-integrated approach. Introduced fundamentally within the Next.js App Router, Server Components allow developers to natively render React components on the server before any HTML is sent to the browser. This architectural decision brings profound benefits to application performance, security, and developer experience.\n\nThe primary advantage of Server Components is a drastic reduction in the JavaScript payload shipped to the client. Because these components render exclusively on the server, their dependencies (such as large date-formatting libraries or markdown parsers) remain on the server and are never downloaded by the user's browser. This results in faster page loads, quicker Time to Interactive (TTI), and improved SEO. Furthermore, Server Components run in a secure backend environment, allowing developers to directly access databases, internal microservices, and sensitive environment variables (like API keys) without exposing them to the client or requiring the creation of intermediary API routes. While Server Components are the default in the Next.js App Router, developers can still seamlessly interleave 'Client Components' (using the 'use client' directive) for specific UI elements that require interactivity, state management, or access to browser APIs, achieving the best of both worlds.",
-                codeExample = "// Next.js Server Component (Default)\nimport db from '@/lib/db'\n\nexport default async function UserProfile({ id }) {\n  // Direct database query on the server!\n  const user = await db.user.findUnique({ where: { id } });\n  return <div>Welcome, {user.name}</div>;\n}",
-                questionType = "MCQ",
-                questionText = "Where do React Server Components execute in Next.js App Router?",
-                optionsJson = "[\"Only on the server\", \"Only in browser\", \"In web worker\", \"On CDN edge only\"]",
-                correctAnswer = "0",
-                explanation = "Server components render exclusively on the server, producing non-interactive HTML/payload without shipping JS bundle to browser."
+    companion object {
+        fun getDefaultConcepts(): List<ConceptItem> {
+            return listOf(
+                ConceptItem(
+                    topic = "Data Structures",
+                    conceptTitle = "Hash Maps & O(1) Lookups",
+                    conceptSummary = "Hash maps map unique keys to values using a hashing function. In average cases, inserting, searching, and deleting keys takes O(1) constant time.",
+                    codeExample = "val map = HashMap<String, Int>()\nmap[\"Alice\"] = 95\nval score = map[\"Alice\"] // O(1) average lookup",
+                    questionType = "MCQ",
+                    questionText = "What is the average time complexity for key lookups in a Hash Map?",
+                    optionsJson = "[\"O(1)\", \"O(log n)\", \"O(n)\", \"O(n²)\"]",
+                    correctAnswer = "0",
+                    explanation = "Hash Maps calculate array indices directly using a hash function, resulting in average O(1) constant time lookups."
+                ),
+                ConceptItem(
+                    topic = "Algorithms",
+                    conceptTitle = "Binary Search Algorithm",
+                    conceptSummary = "Binary Search locates a target value in a sorted array by repeatedly dividing the search range in half, achieving logarithmic O(log n) efficiency.",
+                    codeExample = "fun binarySearch(arr: IntArray, target: Int): Int {\n    var low = 0; var high = arr.size - 1\n    while (low <= high) {\n        val mid = (low + high) / 2\n        if (arr[mid] == target) return mid\n        if (arr[mid] < target) low = mid + 1 else high = mid - 1\n    }\n    return -1\n}",
+                    questionType = "MCQ",
+                    questionText = "What prerequisite MUST an array satisfy for Binary Search to work?",
+                    optionsJson = "[\"The array must be sorted\", \"Elements must all be positive\", \"The size must be even\", \"It must fit in RAM\"]",
+                    correctAnswer = "0",
+                    explanation = "Binary Search depends on comparing the middle element to narrow down the remaining half, which requires a sorted array."
+                ),
+                ConceptItem(
+                    topic = "System Design",
+                    conceptTitle = "Caching & LRU Eviction Policy",
+                    conceptSummary = "Caches store frequent data in fast memory. A Least Recently Used (LRU) policy automatically evicts the entry that hasn't been accessed for the longest time.",
+                    codeExample = "val cache = LinkedHashMap<Int, String>(capacity, 0.75f, accessOrder = true)",
+                    questionType = "MCQ",
+                    questionText = "Which item is discarded when an LRU Cache reaches full capacity?",
+                    optionsJson = "[\"The item least recently accessed\", \"The newest item added\", \"The largest file in memory\", \"A randomly chosen key\"]",
+                    correctAnswer = "0",
+                    explanation = "LRU stands for Least Recently Used; it removes the oldest unaccessed item to free up memory space."
+                )
             )
-        )
-
-        val filtered = seeds.filter { it.topic in topicList }
-        val pool = if (filtered.isNotEmpty()) filtered else seeds
-        return pool.shuffled().take(count)
+        }
     }
 }

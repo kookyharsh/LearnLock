@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -10,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.HelpOutline
@@ -29,8 +31,10 @@ import androidx.compose.ui.unit.sp
 import com.example.data.AppDatabase
 import com.example.data.entity.ConceptItem
 import com.example.data.preferences.AppPreferencesManager
+import com.example.service.GeminiConceptGenerator
 import com.example.service.UnlockOverlayService
 import com.example.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun LearnScreen(
@@ -39,13 +43,41 @@ fun LearnScreen(
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
     val prefsManager = remember { AppPreferencesManager(context) }
+    val coroutineScope = rememberCoroutineScope()
 
     var isServiceEnabled by remember { mutableStateOf(prefsManager.isUnlockServiceEnabled()) }
+    var isGeneratingConcepts by remember { mutableStateOf(false) }
     val dbConcepts by db.conceptDao().getAllConcepts().collectAsState(initial = emptyList())
     var expandedConceptIds by remember { mutableStateOf(setOf<Long>()) }
 
     val windowStart = prefsManager.getLearningWindowStart()
     val windowEnd = prefsManager.getLearningWindowEnd()
+
+    val triggerConceptGeneration: () -> Unit = {
+        if (!isGeneratingConcepts) {
+            val apiKey = prefsManager.getApiKey()
+            if (apiKey.isBlank()) {
+                Toast.makeText(context, "Please configure an API Key in Settings first!", Toast.LENGTH_LONG).show()
+            } else {
+                coroutineScope.launch {
+                    isGeneratingConcepts = true
+                    Toast.makeText(context, "Generating new concepts...", Toast.LENGTH_SHORT).show()
+                    val generator = GeminiConceptGenerator(context, prefsManager)
+                    val newConcepts = generator.generateBatchConcepts(
+                        topics = prefsManager.getSelectedTopics(),
+                        count = 3
+                    )
+                    if (newConcepts.isNotEmpty()) {
+                        db.conceptDao().insertConcepts(newConcepts)
+                        Toast.makeText(context, "Generated ${newConcepts.size} new concepts!", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(context, "Generation failed. Verify API Key / Network in Settings.", Toast.LENGTH_LONG).show()
+                    }
+                    isGeneratingConcepts = false
+                }
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -96,11 +128,15 @@ fun LearnScreen(
                                     } else {
                                         context.startService(serviceIntent)
                                     }
+                                    Toast.makeText(context, "Unlock Tutor Activated!", Toast.LENGTH_SHORT).show()
+                                    // Generate concepts automatically when toggling on
+                                    triggerConceptGeneration()
                                 } catch (e: Exception) {
                                     android.util.Log.e("LearnScreen", "Failed to start overlay service", e)
                                 }
                             } else {
                                 context.stopService(serviceIntent)
+                                Toast.makeText(context, "Unlock Tutor Paused", Toast.LENGTH_SHORT).show()
                             }
                         },
                         colors = SwitchDefaults.colors(
@@ -113,14 +149,47 @@ fun LearnScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
                     text = if (isServiceEnabled)
-                        "Active: Learns a concept automatically when unlocking device."
+                        "Active: Shows a learning concept card automatically when unlocking your device."
                     else
-                        "Paused: Enable to receive questions on screen unlock.",
+                        "Paused: Enable to receive micro-quizzes on screen unlock.",
                     color = TextSecondary,
                     fontSize = 14.sp
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
+
+                // Manual Concept Generation Action Button
+                Button(
+                    onClick = triggerConceptGeneration,
+                    enabled = !isGeneratingConcepts,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ElegantPrimary,
+                        disabledContainerColor = ElegantPrimary.copy(alpha = 0.5f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    if (isGeneratingConcepts) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            color = ElegantOnPrimary,
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("Generating Concepts...", color = ElegantOnPrimary, fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = ElegantOnPrimary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Generate New Concepts Now", color = ElegantOnPrimary, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
 
                 // Learning Window Status Pill
                 Surface(

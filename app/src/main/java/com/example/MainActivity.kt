@@ -21,10 +21,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.preferences.AppPreferencesManager
+import com.example.ui.tour.InteractiveTourDialog
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.LearnScreen
 import com.example.ui.screens.SettingsScreen
-import com.example.ui.screens.SyncScreen
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkSurface
 import com.example.ui.theme.ElegantOnPrimary
@@ -48,14 +49,16 @@ class MainActivity : ComponentActivity() {
 enum class NavTab(val title: String, val icon: ImageVector) {
     LEARN("Learn", Icons.Default.Quiz),
     HISTORY("History", Icons.Default.History),
-    SYNC("Sync", Icons.Default.CloudSync),
     SETTINGS("API & Setup", Icons.Default.Key)
 }
 
 @Composable
 fun MainAppScreen() {
-    var selectedTab by remember { mutableStateOf(NavTab.LEARN) }
     val context = LocalContext.current
+    val prefsManager = remember { AppPreferencesManager(context) }
+
+    var selectedTab by remember { mutableStateOf(NavTab.LEARN) }
+    var showTourDialog by remember { mutableStateOf(!prefsManager.isTourCompleted()) }
 
     LaunchedEffect(Unit) {
         if (!Settings.canDrawOverlays(context)) {
@@ -113,9 +116,17 @@ fun MainAppScreen() {
             when (selectedTab) {
                 NavTab.LEARN -> LearnScreen()
                 NavTab.HISTORY -> HistoryScreen()
-                NavTab.SYNC -> SyncScreen()
-                NavTab.SETTINGS -> SettingsScreen()
+                NavTab.SETTINGS -> SettingsScreen(onStartTour = { showTourDialog = true })
             }
+        }
+
+        if (showTourDialog) {
+            InteractiveTourDialog(
+                onDismiss = { showTourDialog = false },
+                onNavigateTab = { tab ->
+                    selectedTab = tab
+                }
+            )
         }
     }
 }

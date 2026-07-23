@@ -36,16 +36,20 @@ import com.example.service.GeminiConceptGenerator
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 
+import androidx.compose.material.icons.filled.CompassCalibration
+
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onStartTour: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val prefsManager = remember { AppPreferencesManager(context) }
 
     var apiKeyInput by remember { mutableStateOf(prefsManager.getApiKey()) }
+    var customModelInput by remember { mutableStateOf(prefsManager.getCustomModel()) }
     var isApiKeyVisible by remember { mutableStateOf(false) }
 
     var isTestingKey by remember { mutableStateOf(false) }
@@ -67,21 +71,37 @@ fun SettingsScreen(
     ) {
         // Top Title
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = Icons.Default.Key,
-                contentDescription = null,
-                tint = ElegantPrimary,
-                modifier = Modifier.size(28.dp)
-            )
-            Text(
-                text = "Settings & Credentials",
-                color = TextPrimary,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Key,
+                    contentDescription = null,
+                    tint = ElegantPrimary,
+                    modifier = Modifier.size(28.dp)
+                )
+                Text(
+                    text = "Settings & Credentials",
+                    color = TextPrimary,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            if (onStartTour != null) {
+                IconButton(onClick = onStartTour) {
+                    Icon(
+                        imageVector = Icons.Default.CompassCalibration,
+                        contentDescription = "Take Tour",
+                        tint = ElegantPrimary
+                    )
+                }
+            }
         }
 
         // Gemini API Credentials Card
@@ -110,7 +130,7 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "Encrypted key used to pre-generate adaptive learning concepts and code questions beforehand.",
+                    text = "Encrypted key used to pre-generate adaptive learning concepts. Supports Gemini (AIza...), OpenRouter (sk-or-...), or OpenAI (sk-...) keys.",
                     color = TextSecondary,
                     fontSize = 13.sp
                 )
@@ -124,7 +144,7 @@ fun SettingsScreen(
                         prefsManager.setApiKey(it)
                     },
                     label = { Text("API Token / Key") },
-                    placeholder = { Text("AIzaSy...") },
+                    placeholder = { Text("sk-or-v1-... or AIzaSy...") },
                     singleLine = true,
                     visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     trailingIcon = {
@@ -146,6 +166,27 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
 
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = customModelInput,
+                    onValueChange = {
+                        customModelInput = it
+                        prefsManager.setCustomModel(it)
+                    },
+                    label = { Text("Model Name (Optional Override)") },
+                    placeholder = { Text("Default: google/gemini-2.5-flash or gpt-4o-mini") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = ElegantPrimary,
+                        unfocusedBorderColor = DarkBorder,
+                        focusedContainerColor = DarkBackground,
+                        unfocusedContainerColor = DarkBackground,
+                        focusedLabelColor = ElegantPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
                 Spacer(modifier = Modifier.height(14.dp))
 
                 OutlinedButton(
@@ -153,12 +194,8 @@ fun SettingsScreen(
                         coroutineScope.launch {
                             isTestingKey = true
                             val generator = GeminiConceptGenerator(context, prefsManager)
-                            val testResult = generator.generateBatchConcepts(setOf("React"), count = 1)
-                            if (testResult.isNotEmpty()) {
-                                Toast.makeText(context, "API Key Verified & Connected Successfully!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                Toast.makeText(context, "Connection failed. Please verify Key.", Toast.LENGTH_SHORT).show()
-                            }
+                            val (success, message) = generator.testApiKeyConnection()
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                             isTestingKey = false
                         }
                     },
@@ -383,6 +420,53 @@ fun SettingsScreen(
                                 containerColor = DarkBackground,
                                 labelColor = TextPrimary
                             )
+                        )
+                    }
+                }
+            }
+        }
+
+        // Interactive Tour Action Section
+        if (onStartTour != null) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    Text(
+                        text = "App Onboarding & Help",
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Revisit the step-by-step walkthrough of Unlock & Learn features.",
+                        color = TextSecondary,
+                        fontSize = 13.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+                    OutlinedButton(
+                        onClick = onStartTour,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = ElegantPrimary),
+                        border = CardDefaults.outlinedCardBorder().copy(
+                            brush = androidx.compose.ui.graphics.SolidColor(ElegantPrimary)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CompassCalibration,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Take Interactive Tour (30s)",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }

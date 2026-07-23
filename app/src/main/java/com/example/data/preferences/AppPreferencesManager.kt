@@ -46,7 +46,7 @@ class AppPreferencesManager(private val context: Context) {
     }
 
     fun isLearningWindowEnabled(): Boolean {
-        return prefs.getBoolean(KEY_WINDOW_ENABLED, true)
+        return prefs.getBoolean(KEY_WINDOW_ENABLED, false)
     }
 
     fun setLearningWindowEnabled(enabled: Boolean) {
@@ -86,7 +86,7 @@ class AppPreferencesManager(private val context: Context) {
     }
 
     fun isUnlockServiceEnabled(): Boolean {
-        return prefs.getBoolean(KEY_SERVICE_ENABLED, true)
+        return prefs.getBoolean(KEY_SERVICE_ENABLED, false)
     }
 
     fun setUnlockServiceEnabled(enabled: Boolean) {
@@ -117,8 +117,25 @@ class AppPreferencesManager(private val context: Context) {
         prefs.edit().putString(KEY_GOOGLE_USER_EMAIL, email).apply()
     }
 
+    fun isTourCompleted(): Boolean {
+        return prefs.getBoolean(KEY_TOUR_COMPLETED, false)
+    }
+
+    fun setTourCompleted(completed: Boolean) {
+        prefs.edit().putBoolean(KEY_TOUR_COMPLETED, completed).apply()
+    }
+
+    fun getCustomModel(): String {
+        return prefs.getString(KEY_CUSTOM_MODEL, "") ?: ""
+    }
+
+    fun setCustomModel(model: String) {
+        prefs.edit().putString(KEY_CUSTOM_MODEL, model.trim()).apply()
+    }
+
     companion object {
         private const val KEY_API_KEY = "api_key"
+        private const val KEY_CUSTOM_MODEL = "custom_model"
         private const val KEY_WINDOW_ENABLED = "window_enabled"
         private const val KEY_WINDOW_START = "window_start"
         private const val KEY_WINDOW_END = "window_end"
@@ -128,6 +145,7 @@ class AppPreferencesManager(private val context: Context) {
         private const val KEY_DRIVE_SYNC = "drive_sync_enabled"
         private const val KEY_LAST_SYNC = "last_sync_timestamp"
         private const val KEY_GOOGLE_USER_EMAIL = "google_user_email"
+        private const val KEY_TOUR_COMPLETED = "tour_completed"
 
         val DEFAULT_TOPICS = setOf(
             "World History", "Geography", "Biology", "Astronomy", "Literature", "Psychology", "Economics", "Computer Science"

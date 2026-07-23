@@ -12,6 +12,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Book
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LockOpen
@@ -27,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,6 +36,7 @@ import com.example.data.AppDatabase
 import com.example.data.entity.ConceptItem
 import com.example.data.entity.QuestionHistory
 import com.example.data.preferences.AppPreferencesManager
+import com.example.service.GeminiConceptGenerator
 import com.example.service.UnlockReceiver
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
@@ -77,28 +80,23 @@ fun UnlockQuizScreen(
             pendingRetryItem = pending
         } else {
             val selectedTopics = prefsManager.getSelectedTopics().toList()
-            val nextConcept = if (selectedTopics.isNotEmpty()) {
+            var nextConcept = if (selectedTopics.isNotEmpty()) {
                 db.conceptDao().getNextUnusedConceptForTopics(selectedTopics)
             } else {
                 db.conceptDao().getNextUnusedConcept()
             }
 
-            if (nextConcept != null) {
-                currentConcept = nextConcept
-            } else {
-                // Fallback seed concept
-                currentConcept = ConceptItem(
-                    topic = "React",
-                    conceptTitle = "What is useEffect?",
-                    conceptSummary = "useEffect handles side effects in functional components like data fetching and DOM updates. It runs after render when specified dependencies change.",
-                    codeExample = "useEffect(() => {\n  fetchData();\n}, [dependency]);",
-                    questionType = "MCQ",
-                    questionText = "When does a useEffect with an empty dependency array [] run?",
-                    optionsJson = "[\"Only once when component mounts\", \"On every re-render\", \"Only when props change\", \"Never\"]",
-                    correctAnswer = "0",
-                    explanation = "An empty dependency array [] ensures the effect runs only once after initial component mount."
-                )
+            if (nextConcept == null) {
+                // Seed default fallback concepts if DB has no unused concepts
+                db.conceptDao().insertConcepts(GeminiConceptGenerator.getDefaultConcepts())
+                nextConcept = if (selectedTopics.isNotEmpty()) {
+                    db.conceptDao().getNextUnusedConceptForTopics(selectedTopics)
+                } else {
+                    db.conceptDao().getNextUnusedConcept()
+                }
             }
+
+            currentConcept = nextConcept
         }
         isLoading = false
 
@@ -118,6 +116,64 @@ fun UnlockQuizScreen(
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(color = ElegantPrimary)
+            }
+        } else if (pendingRetryItem == null && currentConcept == null) {
+            // Empty State when no concepts exist in database
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    border = CardDefaults.outlinedCardBorder().copy(
+                        brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Book,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "No concepts available yet",
+                            color = TextPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Configure your Gemini API key in Settings or generate concepts from the Learn tab to start learning on device unlocks.",
+                            color = TextSecondary,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Button(
+                            onClick = onDismiss,
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ElegantPrimary,
+                                contentColor = ElegantOnPrimary
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Unlock Device", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         } else {
             Column(

@@ -1,10 +1,15 @@
 package com.example.service
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import com.example.R
 import com.example.data.AppDatabase
 import com.example.data.preferences.AppPreferencesManager
 import com.example.data.entity.ConceptItem
@@ -31,12 +36,10 @@ class UnlockReceiver : BroadcastReceiver() {
             }
 
             Intent.ACTION_SCREEN_OFF -> {
-                // Ensure concepts are generated and ready BEFORE phone locks!
                 pregenerateConceptsIfNeeded(context, prefsManager)
             }
 
             Intent.ACTION_USER_PRESENT -> {
-                // Phone unlocked! Check if learning condition applies
                 if (shouldTriggerLearning(prefsManager)) {
                     launchUnlockQuizActivity(context)
                 }
@@ -58,16 +61,56 @@ class UnlockReceiver : BroadcastReceiver() {
     }
 
     private fun launchUnlockQuizActivity(context: Context) {
+        val quizIntent = Intent(context, UnlockQuizActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            putExtra("TRIGGERED_BY_UNLOCK", true)
+        }
+
+        // Attempt 1: Direct activity start
         try {
-            val quizIntent = Intent(context, UnlockQuizActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra("TRIGGERED_BY_UNLOCK", true)
-            }
             context.startActivity(quizIntent)
         } catch (e: Exception) {
-            Log.e("UnlockReceiver", "Could not start UnlockQuizActivity: ${e.message}")
+            Log.e("UnlockReceiver", "Direct startActivity failed: ${e.message}")
+        }
+
+        // Attempt 2: High priority notification with fullScreenIntent
+        try {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channelId = "unlock_quiz_alert_channel"
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Unlock Learning Quiz",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Pops up CS concepts automatically when unlocking phone"
+                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                2002,
+                quizIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val notification = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(R.drawable.ic_launcher_foreground)
+                .setContentTitle("Unlock & Learn CS")
+                .setContentText("Tap to solve your 30s CS micro-quiz!")
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_CALL)
+                .setFullScreenIntent(pendingIntent, true)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            notificationManager.notify(2002, notification)
+        } catch (e: Exception) {
+            Log.e("UnlockReceiver", "Notification popup trigger error: ${e.message}")
         }
     }
 
@@ -76,8 +119,8 @@ class UnlockReceiver : BroadcastReceiver() {
             if (!prefsManager.isLearningWindowEnabled()) return true
 
             try {
-                val startStr = prefsManager.getLearningWindowStart() // e.g. "09:00"
-                val endStr = prefsManager.getLearningWindowEnd() // e.g. "21:00"
+                val startStr = prefsManager.getLearningWindowStart()
+                val endStr = prefsManager.getLearningWindowEnd()
 
                 val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
                 val nowStr = sdf.format(Calendar.getInstance().time)
@@ -90,12 +133,8 @@ class UnlockReceiver : BroadcastReceiver() {
                     val inWindow = if (startTime.before(endTime)) {
                         nowTime in startTime..endTime
                     } else {
-                        // Spans midnight
                         nowTime >= startTime || nowTime <= endTime
                     }
-
-                    // User constraint: "I can choose to not learn a concept after 9am to 9pm"
-                    // If skip option is enabled and we are in active window, return true unless configured otherwise
                     return inWindow
                 }
             } catch (e: Exception) {
@@ -108,15 +147,26 @@ class UnlockReceiver : BroadcastReceiver() {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val db = AppDatabase.getDatabase(context)
-                    val unusedCount = db.conceptDao().getUnusedCountDirect()
-                    if (unusedCount < 3) {
-                        Log.d("UnlockReceiver", "Queue low ($unusedCount unused). Pre-generating concepts now...")
+                    var unusedCount = db.conceptDao().getUnusedCountDirect()
+
+                    // If DB is completely empty, insert default concepts first so quiz is instantly usable
+                    if (unusedCount == 0) {
+                        Log.d("UnlockReceiver", "Database empty. Seeding default starter concepts...")
+                        db.conceptDao().insertConcepts(GeminiConceptGenerator.getDefaultConcepts())
+                        unusedCount = db.conceptDao().getUnusedCountDirect()
+                    }
+
+                    val apiKey = prefsManager.getApiKey()
+                    if (unusedCount < 3 && apiKey.isNotBlank()) {
+                        Log.d("UnlockReceiver", "Queue low ($unusedCount unused). Generating concepts via AI...")
                         val generator = GeminiConceptGenerator(context, prefsManager)
                         val newConcepts = generator.generateBatchConcepts(
                             topics = prefsManager.getSelectedTopics(),
                             count = 3
                         )
-                        db.conceptDao().insertConcepts(newConcepts)
+                        if (newConcepts.isNotEmpty()) {
+                            db.conceptDao().insertConcepts(newConcepts)
+                        }
                     }
                 } catch (e: Exception) {
                     Log.e("UnlockReceiver", "Pre-generation error: ${e.message}")
