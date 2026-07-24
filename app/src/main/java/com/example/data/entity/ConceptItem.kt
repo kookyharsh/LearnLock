@@ -18,5 +18,7 @@ data class ConceptItem(
     val correctAnswer: String, // Index or exact string solution
     val explanation: String, // Pre-generated explanation
     val isUsed: Boolean = false,
+    val questionsJson: String? = null,
+    val isStarred: Boolean = false,
     val createdAt: Long = System.currentTimeMillis()
 )

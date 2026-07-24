@@ -18,5 +18,8 @@ data class QuestionHistory(
     val optionsJson: String? = null,
     val questionType: String = "MCQ",
     val codeSnippetPrefix: String? = null,
+    val questionsJson: String? = null,
+    val conceptSummary: String? = null,
+    val isStarred: Boolean = false,
     val answeredAt: Long = System.currentTimeMillis()
 )

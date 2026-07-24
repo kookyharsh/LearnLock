@@ -11,7 +11,7 @@ import com.example.data.entity.QuestionHistory
 
 @Database(
     entities = [ConceptItem::class, QuestionHistory::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

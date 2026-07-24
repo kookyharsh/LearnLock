@@ -15,10 +15,10 @@ interface ConceptDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertConcepts(concepts: List<ConceptItem>)
 
-    @Query("SELECT * FROM concepts WHERE isUsed = 0 ORDER BY id ASC LIMIT 1")
+    @Query("SELECT * FROM concepts WHERE isUsed = 0 ORDER BY RANDOM() LIMIT 1")
     suspend fun getNextUnusedConcept(): ConceptItem?
 
-    @Query("SELECT * FROM concepts WHERE isUsed = 0 AND topic IN (:topics) ORDER BY id ASC LIMIT 1")
+    @Query("SELECT * FROM concepts WHERE isUsed = 0 AND topic IN (:topics) ORDER BY RANDOM() LIMIT 1")
     suspend fun getNextUnusedConceptForTopics(topics: List<String>): ConceptItem?
 
     @Query("UPDATE concepts SET isUsed = 1 WHERE id = :id")
@@ -26,6 +26,12 @@ interface ConceptDao {
 
     @Query("SELECT * FROM concepts WHERE conceptTitle = :title LIMIT 1")
     suspend fun getConceptByTitle(title: String): ConceptItem?
+
+    @Query("UPDATE concepts SET isStarred = :isStarred WHERE id = :id")
+    suspend fun updateStarStatus(id: Long, isStarred: Boolean)
+
+    @Query("UPDATE concepts SET isStarred = :isStarred WHERE conceptTitle = :title")
+    suspend fun updateStarStatusByTitle(title: String, isStarred: Boolean)
 
     @Query("SELECT COUNT(*) FROM concepts WHERE isUsed = 0")
     fun getUnusedCount(): Flow<Int>

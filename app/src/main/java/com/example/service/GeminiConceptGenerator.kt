@@ -74,7 +74,7 @@ class GeminiConceptGenerator(
                 client.newCall(requestBuilder.build()).execute()
             } else {
                 // Google Gemini endpoint
-                val modelName = configuredModel ?: "gemini-1.5-flash"
+                val modelName = configuredModel ?: "gemini-3.5-flash"
                 val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
                 val jsonPayload = JSONObject().apply {
                     put("contents", JSONArray().apply {
@@ -138,17 +138,16 @@ class GeminiConceptGenerator(
         val personaInstruction = if (isTechnicalTopic) {
             "You are an expert Computer Science and Software Engineering tutor."
         } else {
-            "You are an expert tutor specializing exclusively in '$selectedTopic'. DO NOT act as a computer science or programming tutor."
+            "You are an expert tutor specializing exclusively in '$selectedTopic'."
         }
 
         val subjectRules = if (isTechnicalTopic) {
             """
-            - You may generate code examples and use questionType "MCQ" or "CODE".
+            - You may generate code examples and use questionType "MCQ" or "CODE" or "FILL IN THE BLANKS".
             """.trimIndent()
         } else {
             """
             - CRITICAL: Focus EXCLUSIVELY on '$selectedTopic'.
-            - DO NOT output programming code, Python syntax, algorithms, or computer science concepts.
             - Set questionType STRICTLY to "MCQ". Do NOT use "CODE" or fill-in-the-blank programming questions.
             - Set codeExample and codeSnippetPrefix to null.
             - For options (4 choices), provide 4 distinct, unambiguous choices. If asking about symbols or punctuation, render the actual symbols or clear choice text directly in the choices.
@@ -157,12 +156,16 @@ class GeminiConceptGenerator(
 
         val prompt = """
             $personaInstruction
-            Generate $count unique concepts and quiz questions for the topic '$selectedTopic'.
+            Generate $count unique concepts for the topic '$selectedTopic'. For each concept, provide a concise explanation and exactly 3 distinct questions.
 
             Rules:
             1. Provide a short, relevant concept title.
-            2. Provide a detailed concept explanation (150-250 words) appropriate for '$selectedTopic'. Explain what it is, why it is important, and provide a clear example.
-            3. Provide a pregenerated explanation detailing why the correct answer is right and common misconceptions.
+            2. Provide a detailed concept explanation (strictly 50-100 words) formatted in markdown (`**bold**`, `*italic*`, `<u>underline</u>`, code backticks where relevant). Explain what it is, why it matters, and a quick real-world example. Make it read like an engaging AI tutor message!
+            3. Provide an array "questions" containing EXACLTY 3 distinct questions for this concept (e.g. MCQ, True/False, Fill in the Blank, or Code).
+               - For MCQ: provide 4 distinct choices in "options" array, and set "correctAnswer" to option index ("0", "1", "2", or "3").
+               - For TRUE_FALSE: set "options" to ["True", "False"], and set "correctAnswer" to "0" or "1".
+               - For FILL_BLANK: set "questionType" to "FILL_BLANK", provide expected word in "correctAnswer".
+               - For CODE: set "questionType" to "CODE", provide prefix in "codeSnippetPrefix", expected answer in "correctAnswer".
             $subjectRules
 
             Return ONLY a valid JSON array matching this structure:
@@ -170,14 +173,34 @@ class GeminiConceptGenerator(
               {
                 "topic": "$selectedTopic",
                 "conceptTitle": "Title",
-                "conceptSummary": "Detailed summary...",
+                "conceptSummary": "Detailed summary (50-100 words with **markdown**)...",
                 "codeExample": null,
-                "questionType": "MCQ",
-                "questionText": "Question text",
-                "options": ["Option A", "Option B", "Option C", "Option D"],
-                "codeSnippetPrefix": null,
-                "correctAnswer": "0",
-                "explanation": "Explanation text..."
+                "questions": [
+                  {
+                    "questionType": "MCQ",
+                    "questionText": "Question 1 text...",
+                    "options": ["Option A", "Option B", "Option C", "Option D"],
+                    "codeSnippetPrefix": null,
+                    "correctAnswer": "0",
+                    "explanation": "Why answer 0 is correct..."
+                  },
+                  {
+                    "questionType": "TRUE_FALSE",
+                    "questionText": "Question 2 text...",
+                    "options": ["True", "False"],
+                    "codeSnippetPrefix": null,
+                    "correctAnswer": "0",
+                    "explanation": "Why True is correct..."
+                  },
+                  {
+                    "questionType": "MCQ",
+                    "questionText": "Question 3 text...",
+                    "options": ["Option A", "Option B", "Option C", "Option D"],
+                    "codeSnippetPrefix": null,
+                    "correctAnswer": "2",
+                    "explanation": "Why Option C is correct..."
+                  }
+                ]
               }
             ]
         """.trimIndent()
@@ -311,7 +334,14 @@ class GeminiConceptGenerator(
 
             for (i in 0 until jsonArray.length()) {
                 val item = jsonArray.getJSONObject(i)
-                val optionsJsonArray = item.optJSONArray("options")
+                val questionsArray = item.optJSONArray("questions")
+                val questionsStr = questionsArray?.toString()
+
+                val firstQ = if (questionsArray != null && questionsArray.length() > 0) {
+                    questionsArray.getJSONObject(0)
+                } else item
+
+                val optionsJsonArray = firstQ.optJSONArray("options") ?: item.optJSONArray("options")
                 val optionsString = optionsJsonArray?.toString()
 
                 results.add(
@@ -320,13 +350,15 @@ class GeminiConceptGenerator(
                         conceptTitle = item.optString("conceptTitle", "$selectedTopic Concept"),
                         conceptSummary = item.optString("conceptSummary", "Concept explanation..."),
                         codeExample = item.optString("codeExample").takeIf { it.isNotBlank() && it != "null" },
-                        questionType = item.optString("questionType", "MCQ"),
-                        questionText = item.optString("questionText", "What is the answer?"),
+                        questionType = firstQ.optString("questionType", item.optString("questionType", "MCQ")),
+                        questionText = firstQ.optString("questionText", item.optString("questionText", "Answer to complete unlock.")),
                         optionsJson = optionsString,
-                        codeSnippetPrefix = item.optString("codeSnippetPrefix").takeIf { it.isNotBlank() && it != "null" },
-                        correctAnswer = item.optString("correctAnswer", "0"),
-                        explanation = item.optString("explanation", "Great job! This is the correct concept."),
-                        isUsed = false
+                        codeSnippetPrefix = firstQ.optString("codeSnippetPrefix").takeIf { it.isNotBlank() && it != "null" }
+                            ?: item.optString("codeSnippetPrefix").takeIf { it.isNotBlank() && it != "null" },
+                        correctAnswer = firstQ.optString("correctAnswer", item.optString("correctAnswer", "0")),
+                        explanation = firstQ.optString("explanation", item.optString("explanation", "Correct answer verified!")),
+                        isUsed = false,
+                        questionsJson = questionsStr
                     )
                 )
             }

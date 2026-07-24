@@ -267,39 +267,77 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    OutlinedTextField(
-                        value = startTimeInput,
-                        onValueChange = {
-                            startTimeInput = it
-                            prefsManager.setLearningWindowStart(it)
-                        },
-                        label = { Text("Start Time") },
-                        placeholder = { Text("09:00") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ElegantPrimary,
-                            unfocusedBorderColor = DarkBorder,
-                            focusedContainerColor = DarkSurface
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                val parts = startTimeInput.split(":")
+                                val h = parts.getOrNull(0)?.toIntOrNull() ?: 9
+                                val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                android.app.TimePickerDialog(
+                                    context,
+                                    { _, hour, minute ->
+                                        val formatted = String.format(java.util.Locale.getDefault(), "%02d:%02d", hour, minute)
+                                        startTimeInput = formatted
+                                        prefsManager.setLearningWindowStart(formatted)
+                                    },
+                                    h, m, true
+                                ).show()
+                            }
+                    ) {
+                        OutlinedTextField(
+                            value = startTimeInput,
+                            onValueChange = {},
+                            readOnly = true,
+                            enabled = false,
+                            label = { Text("Start Time") },
+                            placeholder = { Text("09:00") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                disabledBorderColor = DarkBorder,
+                                disabledTextColor = TextPrimary,
+                                disabledLabelColor = ElegantPrimary,
+                                disabledContainerColor = DarkSurface
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
 
-                    OutlinedTextField(
-                        value = endTimeInput,
-                        onValueChange = {
-                            endTimeInput = it
-                            prefsManager.setLearningWindowEnd(it)
-                        },
-                        label = { Text("End Time") },
-                        placeholder = { Text("21:00") },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = ElegantPrimary,
-                            unfocusedBorderColor = DarkBorder,
-                            focusedContainerColor = DarkSurface
-                        ),
-                        modifier = Modifier.weight(1f)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable {
+                                val parts = endTimeInput.split(":")
+                                val h = parts.getOrNull(0)?.toIntOrNull() ?: 21
+                                val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                android.app.TimePickerDialog(
+                                    context,
+                                    { _, hour, minute ->
+                                        val formatted = String.format(java.util.Locale.getDefault(), "%02d:%02d", hour, minute)
+                                        endTimeInput = formatted
+                                        prefsManager.setLearningWindowEnd(formatted)
+                                    },
+                                    h, m, true
+                                ).show()
+                            }
+                    ) {
+                        OutlinedTextField(
+                            value = endTimeInput,
+                            onValueChange = {},
+                            readOnly = true,
+                            enabled = false,
+                            label = { Text("End Time") },
+                            placeholder = { Text("21:00") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                disabledBorderColor = DarkBorder,
+                                disabledTextColor = TextPrimary,
+                                disabledLabelColor = ElegantPrimary,
+                                disabledContainerColor = DarkSurface
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(12.dp))

@@ -1,38 +1,30 @@
 package com.example.ui.screens
 
-import android.content.Intent
 import android.widget.Toast
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
-import androidx.compose.material.icons.filled.Code
-import androidx.compose.material.icons.filled.HelpOutline
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.AppDatabase
-import com.example.data.entity.ConceptItem
+import com.example.data.entity.QuestionHistory
 import com.example.data.preferences.AppPreferencesManager
 import com.example.service.GeminiConceptGenerator
-import com.example.service.UnlockOverlayService
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 
@@ -47,8 +39,8 @@ fun LearnScreen(
 
     var isServiceEnabled by remember { mutableStateOf(prefsManager.isUnlockServiceEnabled()) }
     var isGeneratingConcepts by remember { mutableStateOf(false) }
-    val dbConcepts by db.conceptDao().getAllConcepts().collectAsState(initial = emptyList())
-    var expandedConceptIds by remember { mutableStateOf(setOf<Long>()) }
+    val recentHistory by db.historyDao().getRecentlyViewedHistory(10).collectAsState(initial = emptyList())
+    var selectedDetailConcept by remember { mutableStateOf<QuestionHistory?>(null) }
 
     val windowStart = prefsManager.getLearningWindowStart()
     val windowEnd = prefsManager.getLearningWindowEnd()
@@ -79,413 +71,273 @@ fun LearnScreen(
         }
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(DarkBackground)
-            .padding(16.dp)
-            .verticalScroll(rememberScrollState()),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Hero Header Card
-        Card(
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            modifier = Modifier.fillMaxWidth()
+    if (selectedDetailConcept != null) {
+        ConceptDetailScreen(
+            item = selectedDetailConcept!!,
+            onBack = { selectedDetailConcept = null },
+            onStarToggled = { newStarred ->
+                val updated = selectedDetailConcept!!.copy(isStarred = newStarred)
+                selectedDetailConcept = updated
+                coroutineScope.launch {
+                    db.historyDao().updateStarStatus(updated.id, newStarred)
+                    db.conceptDao().updateStarStatusByTitle(updated.conceptTitle, newStarred)
+                }
+            }
+        )
+    } else {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .background(DarkBackground)
+                .padding(16.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Column(modifier = Modifier.padding(20.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text(
-                            text = "UNLOCK & LEARN",
-                            color = ElegantPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.2.sp
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Phone Unlock Tutor",
-                            color = TextPrimary,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                    Switch(
-                        checked = isServiceEnabled,
-                        onCheckedChange = { checked ->
-                            isServiceEnabled = checked
-                            prefsManager.setUnlockServiceEnabled(checked)
-                            val serviceIntent = Intent(context, UnlockOverlayService::class.java)
-                            if (checked) {
-                                try {
-                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                                        context.startForegroundService(serviceIntent)
-                                    } else {
-                                        context.startService(serviceIntent)
-                                    }
-                                    Toast.makeText(context, "Unlock Tutor Activated!", Toast.LENGTH_SHORT).show()
-                                    // Generate concepts automatically when toggling on
-                                    triggerConceptGeneration()
-                                } catch (e: Exception) {
-                                    android.util.Log.e("LearnScreen", "Failed to start overlay service", e)
-                                }
-                            } else {
-                                context.stopService(serviceIntent)
-                                Toast.makeText(context, "Unlock Tutor Paused", Toast.LENGTH_SHORT).show()
-                            }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = ElegantOnPrimary,
-                            checkedTrackColor = ElegantPrimary
-                        )
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = if (isServiceEnabled)
-                        "Active: Shows a learning concept card automatically when unlocking your device."
-                    else
-                        "Paused: Enable to receive micro-quizzes on screen unlock.",
-                    color = TextSecondary,
-                    fontSize = 14.sp
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Manual Concept Generation Action Button
-                Button(
-                    onClick = triggerConceptGeneration,
-                    enabled = !isGeneratingConcepts,
-                    shape = RoundedCornerShape(16.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ElegantPrimary,
-                        disabledContainerColor = ElegantPrimary.copy(alpha = 0.5f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (isGeneratingConcepts) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = ElegantOnPrimary,
-                            strokeWidth = 2.dp
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text("Generating Concepts...", color = ElegantOnPrimary, fontWeight = FontWeight.Bold)
-                    } else {
-                        Icon(
-                            imageVector = Icons.Default.AutoAwesome,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = ElegantOnPrimary
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Generate New Concepts Now", color = ElegantOnPrimary, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                // Learning Window Status Pill
-                Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = DarkBackground,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+            // Hero Header Card
+            Card(
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(20.dp)) {
                     Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Schedule,
-                            contentDescription = null,
-                            tint = ElegantPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
                         Column {
                             Text(
-                                text = "Active Learning Window",
-                                color = TextMuted,
-                                fontSize = 11.sp
+                                text = "UNLOCK & LEARN",
+                                color = ElegantPrimary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp
                             )
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "$windowStart AM - $windowEnd PM",
+                                text = "Phone Unlock Tutor",
                                 color = TextPrimary,
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontSize = 22.sp,
+                                fontWeight = FontWeight.Bold
                             )
+                        }
+                        Switch(
+                            checked = isServiceEnabled,
+                            onCheckedChange = { checked ->
+                                isServiceEnabled = checked
+                                prefsManager.setUnlockServiceEnabled(checked)
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = ElegantOnPrimary,
+                                checkedTrackColor = ElegantPrimary
+                            )
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = if (isServiceEnabled)
+                            "Active: Shows a learning concept card automatically when unlocking your device."
+                        else
+                            "Paused: Enable to receive micro-quizzes on screen unlock.",
+                        color = TextSecondary,
+                        fontSize = 14.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Manual Concept Generation Button
+                    Button(
+                        onClick = triggerConceptGeneration,
+                        enabled = !isGeneratingConcepts,
+                        shape = RoundedCornerShape(16.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ElegantPrimary,
+                            disabledContainerColor = ElegantPrimary.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        if (isGeneratingConcepts) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = ElegantOnPrimary,
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Generating Concepts...", color = ElegantOnPrimary, fontWeight = FontWeight.Bold)
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.AutoAwesome,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = ElegantOnPrimary
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Generate New Concepts Now", color = ElegantOnPrimary, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Learning Window Status Pill
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = DarkBackground,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = ElegantPrimary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Column {
+                                Text(
+                                    text = "Active Learning Window",
+                                    color = TextMuted,
+                                    fontSize = 11.sp
+                                )
+                                Text(
+                                    text = "$windowStart - $windowEnd",
+                                    color = TextPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
                 }
             }
-        }
 
-        // Recent Concepts Header
-        Column(modifier = Modifier.fillMaxWidth()) {
+            // Recently Viewed Concepts Header
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.Book,
-                    contentDescription = null,
-                    tint = ElegantPrimary,
-                    modifier = Modifier.size(22.dp)
-                )
                 Text(
-                    text = "Recent Concepts",
+                    text = "Recently Viewed Concepts",
                     color = TextPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold
                 )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = "Tap any card to expand and review detailed explanations and code snippets.",
-                color = TextSecondary,
-                fontSize = 13.sp
-            )
-        }
-
-        // Expandable Recent Concept Cards
-        if (dbConcepts.isEmpty()) {
-            Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier.padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = DarkSurface
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Book,
-                        contentDescription = null,
-                        tint = TextMuted,
-                        modifier = Modifier.size(36.dp)
-                    )
-                    Spacer(modifier = Modifier.height(12.dp))
                     Text(
-                        text = "No concepts learned yet",
-                        color = TextPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = "As you unlock your device and practice quizzes, your generated concepts will automatically appear here for review.",
-                        color = TextSecondary,
-                        fontSize = 13.sp,
-                        lineHeight = 18.sp,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        text = "${recentHistory.size} viewed",
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
             }
-        } else {
-            dbConcepts.forEach { concept ->
-                val isExpanded = expandedConceptIds.contains(concept.id)
 
+            if (recentHistory.isEmpty()) {
                 Card(
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                    border = CardDefaults.outlinedCardBorder().copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(
-                            if (isExpanded) ElegantPrimary else DarkBorder
-                        )
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
-                            expandedConceptIds = if (isExpanded) {
-                                expandedConceptIds - concept.id
-                            } else {
-                                expandedConceptIds + concept.id
-                            }
-                        }
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        // Card Header Row
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = ElegantPrimary.copy(alpha = 0.15f)
-                        ) {
-                            Text(
-                                text = concept.topic,
-                                color = ElegantPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                            )
-                        }
-
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Icon(
-                            imageVector = if (isExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                            contentDescription = if (isExpanded) "Collapse" else "Expand",
-                            tint = TextSecondary
+                            imageVector = Icons.Default.Book,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(36.dp)
                         )
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Text(
-                        text = concept.conceptTitle,
-                        color = TextPrimary,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    if (!isExpanded) {
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = concept.conceptSummary,
+                            text = "No concepts viewed yet",
+                            color = TextPrimary,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "As you unlock your device and practice quizzes, your viewed concepts will automatically appear here for quick review.",
                             color = TextSecondary,
-                            fontSize = 14.sp,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                            lineHeight = 20.sp
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
                     }
-
-                    AnimatedVisibility(visible = isExpanded) {
-                        Column(
-                            modifier = Modifier.padding(top = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            // Full Detailed Summary
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = DarkBackground,
-                                border = CardDefaults.outlinedCardBorder().copy(
-                                    brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                                ),
-                                modifier = Modifier.fillMaxWidth()
+                }
+            } else {
+                recentHistory.forEach { historyItem ->
+                    Card(
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                        border = CardDefaults.outlinedCardBorder().copy(
+                            brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { selectedDetailConcept = historyItem }
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Book,
-                                            contentDescription = null,
-                                            tint = ElegantPrimary,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Text(
-                                            text = "Detailed Explanation",
-                                            color = ElegantPrimary,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = concept.conceptSummary,
-                                        color = TextSecondary,
-                                        fontSize = 14.sp,
-                                        lineHeight = 21.sp
-                                    )
-                                }
-                            }
-
-                            // Code / Text Example snippet if present
-                            if (!concept.codeExample.isNullOrBlank()) {
                                 Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = DarkBackground,
-                                    border = CardDefaults.outlinedCardBorder().copy(
-                                        brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = ElegantPrimary.copy(alpha = 0.15f)
                                 ) {
-                                    Column(modifier = Modifier.padding(14.dp)) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Default.Code,
-                                                contentDescription = null,
-                                                tint = CodeBlue,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Text(
-                                                text = "Example / Code Snippet",
-                                                color = CodeBlue,
-                                                fontSize = 12.sp,
-                                                fontWeight = FontWeight.Bold
-                                            )
+                                    Text(
+                                        text = historyItem.topic,
+                                        color = ElegantPrimary,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                                    )
+                                }
+
+                                IconButton(
+                                    onClick = {
+                                        val newStar = !historyItem.isStarred
+                                        coroutineScope.launch {
+                                            db.historyDao().updateStarStatus(historyItem.id, newStar)
+                                            db.conceptDao().updateStarStatusByTitle(historyItem.conceptTitle, newStar)
                                         }
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = concept.codeExample,
-                                            color = CodeBlue,
-                                            fontFamily = FontFamily.Monospace,
-                                            fontSize = 13.sp,
-                                            lineHeight = 19.sp
-                                        )
-                                    }
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (historyItem.isStarred) Icons.Default.Star else Icons.Outlined.StarBorder,
+                                        contentDescription = "Star",
+                                        tint = if (historyItem.isStarred) GoldStar else TextMuted
+                                    )
                                 }
                             }
 
-                            // Question / Practice preview
-                            Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = DarkBackground,
-                                border = CardDefaults.outlinedCardBorder().copy(
-                                    brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                                ),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.HelpOutline,
-                                            contentDescription = null,
-                                            tint = TextMuted,
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                        Text(
-                                            text = "Practice Question",
-                                            color = TextMuted,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = concept.questionText,
-                                        color = TextPrimary,
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = concept.explanation,
-                                        color = TextSecondary,
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp
-                                    )
-                                }
-                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = historyItem.conceptTitle,
+                                color = TextPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            Text(
+                                text = historyItem.questionText,
+                                color = TextSecondary,
+                                fontSize = 13.sp,
+                                maxLines = 2
+                            )
                         }
                     }
                 }
@@ -493,5 +345,3 @@ fun LearnScreen(
         }
     }
 }
-}
-
