@@ -21,8 +21,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.example.data.preferences.AppPreferencesManager
-import com.example.ui.tour.InteractiveTourDialog
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import com.example.ui.tour.CoachmarkOverlay
+import com.example.ui.tour.CoachmarkStep
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.LearnScreen
 import com.example.ui.screens.SettingsScreen
@@ -58,7 +60,22 @@ fun MainAppScreen() {
     val prefsManager = remember { AppPreferencesManager(context) }
 
     var selectedTab by remember { mutableStateOf(NavTab.LEARN) }
-    var showTourDialog by remember { mutableStateOf(!prefsManager.isTourCompleted()) }
+    var activeTourStep by remember {
+        mutableStateOf<CoachmarkStep?>(
+            if (!prefsManager.isTourCompleted()) CoachmarkStep.LEARN_TAB else null
+        )
+    }
+
+    var navTabCoordinates by remember { mutableStateOf(mapOf<NavTab, LayoutCoordinates>()) }
+
+    LaunchedEffect(activeTourStep) {
+        when (activeTourStep) {
+            CoachmarkStep.LEARN_TAB -> selectedTab = NavTab.LEARN
+            CoachmarkStep.HISTORY_TAB -> selectedTab = NavTab.HISTORY
+            CoachmarkStep.SETTINGS_TAB -> selectedTab = NavTab.SETTINGS
+            null -> {}
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (!Settings.canDrawOverlays(context)) {
@@ -101,7 +118,10 @@ fun MainAppScreen() {
                             indicatorColor = ElegantPrimary,
                             unselectedIconColor = TextMuted,
                             unselectedTextColor = TextMuted
-                        )
+                        ),
+                        modifier = Modifier.onGloballyPositioned { coordinates ->
+                            navTabCoordinates = navTabCoordinates + (tab to coordinates)
+                        }
                     )
                 }
             }
@@ -116,15 +136,34 @@ fun MainAppScreen() {
             when (selectedTab) {
                 NavTab.LEARN -> LearnScreen()
                 NavTab.HISTORY -> HistoryScreen()
-                NavTab.SETTINGS -> SettingsScreen(onStartTour = { showTourDialog = true })
+                NavTab.SETTINGS -> SettingsScreen(onStartTour = { activeTourStep = CoachmarkStep.LEARN_TAB })
             }
         }
 
-        if (showTourDialog) {
-            InteractiveTourDialog(
-                onDismiss = { showTourDialog = false },
-                onNavigateTab = { tab ->
-                    selectedTab = tab
+        activeTourStep?.let { step ->
+            val targetKey = when (step) {
+                CoachmarkStep.LEARN_TAB -> NavTab.LEARN
+                CoachmarkStep.HISTORY_TAB -> NavTab.HISTORY
+                CoachmarkStep.SETTINGS_TAB -> NavTab.SETTINGS
+            }
+            
+            CoachmarkOverlay(
+                activeStep = step,
+                targetCoordinates = navTabCoordinates[targetKey],
+                onNext = {
+                    val nextStepIndex = step.ordinal + 1
+                    if (nextStepIndex < CoachmarkStep.entries.size) {
+                        activeTourStep = CoachmarkStep.entries[nextStepIndex]
+                    } else {
+                        prefsManager.setTourCompleted(true)
+                        activeTourStep = null
+                        selectedTab = NavTab.LEARN
+                    }
+                },
+                onSkip = {
+                    prefsManager.setTourCompleted(true)
+                    activeTourStep = null
+                    selectedTab = NavTab.LEARN
                 }
             )
         }
