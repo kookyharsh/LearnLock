@@ -78,6 +78,10 @@ fun UnlockQuizScreen(
         val pending = db.historyDao().getPendingRetryQuestion()
         if (pending != null) {
             pendingRetryItem = pending
+            val concept = db.conceptDao().getConceptByTitle(pending.conceptTitle)
+            if (concept != null) {
+                currentConcept = concept
+            }
         } else {
             val selectedTopics = prefsManager.getSelectedTopics().toList()
             var nextConcept = if (selectedTopics.isNotEmpty()) {

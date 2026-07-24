@@ -24,6 +24,9 @@ interface ConceptDao {
     @Query("UPDATE concepts SET isUsed = 1 WHERE id = :id")
     suspend fun markConceptUsed(id: Long)
 
+    @Query("SELECT * FROM concepts WHERE conceptTitle = :title LIMIT 1")
+    suspend fun getConceptByTitle(title: String): ConceptItem?
+
     @Query("SELECT COUNT(*) FROM concepts WHERE isUsed = 0")
     fun getUnusedCount(): Flow<Int>
 
