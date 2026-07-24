@@ -54,7 +54,7 @@ class AppPreferencesManager(private val context: Context) {
     }
 
     fun getLearningWindowStart(): String {
-        return prefs.getString(KEY_WINDOW_START, "09:00") ?: "09:00"
+        return prefs.getString(KEY_WINDOW_START, "09:00 AM") ?: "09:00 AM"
     }
 
     fun setLearningWindowStart(time: String) {
@@ -62,7 +62,7 @@ class AppPreferencesManager(private val context: Context) {
     }
 
     fun getLearningWindowEnd(): String {
-        return prefs.getString(KEY_WINDOW_END, "21:00") ?: "21:00"
+        return prefs.getString(KEY_WINDOW_END, "09:00 PM") ?: "09:00 PM"
     }
 
     fun setLearningWindowEnd(time: String) {

@@ -18,6 +18,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.NavigateNext
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
@@ -49,6 +50,15 @@ import kotlinx.coroutines.launch
 import org.json.JSONArray
 import java.util.Date
 
+data class QuizQuestion(
+    val questionText: String,
+    val questionType: String,
+    val optionsList: List<String>,
+    val codeSnippetPrefix: String?,
+    val correctAnswer: String,
+    val explanation: String
+)
+
 @Composable
 fun UnlockQuizScreen(
     onDismiss: () -> Unit,
@@ -64,11 +74,17 @@ fun UnlockQuizScreen(
     var isLoading by remember { mutableStateOf(true) }
 
     var isQuizStarted by remember { mutableStateOf(false) }
-    var selectedOptionIndex by remember { mutableStateOf(-1) }
-    var codeAnswerText by remember { mutableStateOf("") }
+    var currentQuestionIndex by remember { mutableStateOf(0) }
+    
+    // Track selected option indices and code answers per question index
+    val selectedOptionIndices = remember { mutableStateMapOf<Int, Int>() }
+    val codeAnswers = remember { mutableStateMapOf<Int, String>() }
+
     var showResultDialog by remember { mutableStateOf(false) }
-    var isAnswerCorrect by remember { mutableStateOf(false) }
-    var explanationText by remember { mutableStateOf("") }
+    var totalScore by remember { mutableStateOf(0) }
+    var totalQuestionsCount by remember { mutableStateOf(1) }
+    var isPassed by remember { mutableStateOf(false) }
+    var resultBreakdownText by remember { mutableStateOf("") }
     var isStarred by remember { mutableStateOf(false) }
 
     val currentTime = remember {
@@ -177,12 +193,19 @@ fun UnlockQuizScreen(
             val topic = pendingRetryItem?.topic ?: currentConcept?.topic ?: "General CS"
             val summary = currentConcept?.conceptSummary ?: "Master this fundamental software engineering concept to complete your unlock."
             val codeExample = currentConcept?.codeExample
-            val questionText = pendingRetryItem?.questionText ?: currentConcept?.questionText ?: "Answer the question to proceed."
-            val questionType = pendingRetryItem?.questionType ?: currentConcept?.questionType ?: "MCQ"
-            val optionsJson = pendingRetryItem?.optionsJson ?: currentConcept?.optionsJson
-            val codePrefix = pendingRetryItem?.codeSnippetPrefix ?: currentConcept?.codeSnippetPrefix
-            val expectedAnswer = pendingRetryItem?.correctAnswer ?: currentConcept?.correctAnswer ?: "0"
-            val rawExplanation = pendingRetryItem?.explanation ?: currentConcept?.explanation ?: "Correct answer verified!"
+
+            val rawQuestionsJson = pendingRetryItem?.questionsJson ?: currentConcept?.questionsJson
+            val questionsList = remember(pendingRetryItem, currentConcept) {
+                parseQuestionsList(
+                    questionsJson = rawQuestionsJson,
+                    fallbackQuestionText = pendingRetryItem?.questionText ?: currentConcept?.questionText ?: "Answer the question to proceed.",
+                    fallbackQuestionType = pendingRetryItem?.questionType ?: currentConcept?.questionType ?: "MCQ",
+                    fallbackOptionsJson = pendingRetryItem?.optionsJson ?: currentConcept?.optionsJson,
+                    fallbackCodePrefix = pendingRetryItem?.codeSnippetPrefix ?: currentConcept?.codeSnippetPrefix,
+                    fallbackCorrectAnswer = pendingRetryItem?.correctAnswer ?: currentConcept?.correctAnswer ?: "0",
+                    fallbackExplanation = pendingRetryItem?.explanation ?: currentConcept?.explanation ?: "Correct answer verified!"
+                )
+            }
 
             Column(
                 modifier = modifier
@@ -286,7 +309,7 @@ fun UnlockQuizScreen(
                                     )
                                 }
                                 Text(
-                                    text = "AI TUTOR CONCEPT",
+                                    text = topic.uppercase(),
                                     color = ElegantPrimary,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
@@ -299,7 +322,7 @@ fun UnlockQuizScreen(
                                 color = DarkBackground
                             ) {
                                 Text(
-                                    text = topic,
+                                    text = "AI TUTOR CONCEPT",
                                     color = TextMuted,
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Medium,
@@ -361,14 +384,19 @@ fun UnlockQuizScreen(
                             .height(56.dp)
                     ) {
                         Text(
-                            text = "START QUIZ",
+                            text = "START QUIZ (${questionsList.size} QUESTIONS)",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp
                         )
                     }
                 } else {
-                    // Question Section Card
+                    val currentQ = questionsList[currentQuestionIndex]
+                    val qIndex = currentQuestionIndex
+                    val selectedIdx = selectedOptionIndices[qIndex] ?: -1
+                    val currentCodeInput = codeAnswers[qIndex] ?: ""
+
+                    // Progress bar & Question Step Badge
                     Card(
                         shape = RoundedCornerShape(24.dp),
                         colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
@@ -376,6 +404,48 @@ fun UnlockQuizScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = ElegantPrimary.copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "QUESTION ${qIndex + 1} OF ${questionsList.size}",
+                                        color = ElegantPrimary,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 1.sp,
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+
+                                Text(
+                                    text = "${qIndex + 1}/${questionsList.size}",
+                                    color = TextMuted,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            LinearProgressIndicator(
+                                progress = (qIndex + 1).toFloat() / questionsList.size,
+                                color = ElegantPrimary,
+                                trackColor = DarkBackground,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(CircleShape)
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            // Question Text
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -388,14 +458,14 @@ fun UnlockQuizScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(
-                                        text = "01",
+                                        text = "0${qIndex + 1}",
                                         color = ElegantOnPrimary,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
                                 Text(
-                                    text = questionText,
+                                    text = currentQ.questionText,
                                     color = TextPrimary,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Medium,
@@ -405,7 +475,8 @@ fun UnlockQuizScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            if (questionType == "CODE") {
+                            // Render choices (CODE vs MCQ/TRUE_FALSE)
+                            if (currentQ.questionType == "CODE") {
                                 Surface(
                                     shape = RoundedCornerShape(16.dp),
                                     color = DarkBackground,
@@ -420,9 +491,9 @@ fun UnlockQuizScreen(
                                             fontFamily = FontFamily.Monospace
                                         )
                                         Spacer(modifier = Modifier.height(6.dp))
-                                        if (!codePrefix.isNullOrBlank()) {
+                                        if (!currentQ.codeSnippetPrefix.isNullOrBlank()) {
                                             Text(
-                                                text = codePrefix,
+                                                text = currentQ.codeSnippetPrefix,
                                                 color = CodeBlue,
                                                 fontFamily = FontFamily.Monospace,
                                                 fontSize = 14.sp
@@ -430,9 +501,9 @@ fun UnlockQuizScreen(
                                         }
                                         Spacer(modifier = Modifier.height(6.dp))
                                         OutlinedTextField(
-                                            value = codeAnswerText,
-                                            onValueChange = { codeAnswerText = it },
-                                            placeholder = { Text("condition / code expression...", color = TextMuted, fontSize = 13.sp) },
+                                            value = currentCodeInput,
+                                            onValueChange = { codeAnswers[qIndex] = it },
+                                            placeholder = { Text("code answer...", color = TextMuted, fontSize = 13.sp) },
                                             textStyle = LocalTextStyle.current.copy(
                                                 color = TextPrimary,
                                                 fontFamily = FontFamily.Monospace,
@@ -449,13 +520,9 @@ fun UnlockQuizScreen(
                                     }
                                 }
                             } else {
-                                val optionsList = remember(optionsJson) {
-                                    parseOptionsJson(optionsJson)
-                                }
-
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    optionsList.forEachIndexed { index, optionText ->
-                                        val isSelected = selectedOptionIndex == index
+                                    currentQ.optionsList.forEachIndexed { index, optionText ->
+                                        val isSelected = selectedIdx == index
                                         val borderColor = if (isSelected) ElegantPrimary else DarkBorder
                                         val bgColor = if (isSelected) ElegantPrimaryContainer.copy(alpha = 0.3f) else DarkSurface
 
@@ -468,7 +535,7 @@ fun UnlockQuizScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clip(RoundedCornerShape(14.dp))
-                                                .clickable { selectedOptionIndex = index }
+                                                .clickable { selectedOptionIndices[qIndex] = index }
                                         ) {
                                             Row(
                                                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -496,92 +563,145 @@ fun UnlockQuizScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Button(
-                        onClick = {
-                            var correct = false
-                            if (questionType == "CODE") {
-                                correct = codeAnswerText.trim().equals(expectedAnswer.trim(), ignoreCase = true)
-                            } else {
-                                val selectedOptionLetter = when (selectedOptionIndex) {
-                                    0 -> "A"
-                                    1 -> "B"
-                                    2 -> "C"
-                                    3 -> "D"
-                                    else -> ""
-                                }
-                                correct = selectedOptionLetter.equals(expectedAnswer.trim(), ignoreCase = true) ||
-                                        selectedOptionIndex.toString() == expectedAnswer.trim()
-                            }
+                    val isCurrentAnswered = if (currentQ.questionType == "CODE") {
+                        currentCodeInput.isNotBlank()
+                    } else {
+                        selectedIdx != -1
+                    }
 
-                            isAnswerCorrect = correct
-                            explanationText = rawExplanation
-                            showResultDialog = true
+                    if (qIndex < questionsList.size - 1) {
+                        Button(
+                            onClick = { currentQuestionIndex++ },
+                            enabled = isCurrentAnswered,
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ElegantPrimary,
+                                contentColor = ElegantOnPrimary
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                        ) {
+                            Text(
+                                text = "NEXT QUESTION (${qIndex + 1}/${questionsList.size})",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Icon(imageVector = Icons.Default.NavigateNext, contentDescription = null)
+                        }
+                    } else {
+                        // Submit All Quiz Questions
+                        Button(
+                            onClick = {
+                                var correctCount = 0
+                                val breakdownBuilder = StringBuilder()
 
-                            coroutineScope.launch {
-                                val currentItem = pendingRetryItem
-                                if (currentItem != null) {
-                                    val newStatus = if (correct) "PASSED" else "RETRY_PENDING"
-                                    val updatedHistory = currentItem.copy(
-                                        isCorrect = correct,
-                                        status = newStatus,
-                                        answeredAt = System.currentTimeMillis()
-                                    )
-                                    db.historyDao().updateHistory(updatedHistory)
-                                    if (correct) {
-                                        db.historyDao().markConceptPassed(currentItem.conceptTitle)
+                                questionsList.forEachIndexed { i, q ->
+                                    val userSelIdx = selectedOptionIndices[i] ?: -1
+                                    val userCode = codeAnswers[i] ?: ""
+                                    
+                                    val isQCorrect = if (q.questionType == "CODE") {
+                                        userCode.trim().equals(q.correctAnswer.trim(), ignoreCase = true)
+                                    } else {
+                                        val letter = when (userSelIdx) {
+                                            0 -> "A"; 1 -> "B"; 2 -> "C"; 3 -> "D"; else -> ""
+                                        }
+                                        letter.equals(q.correctAnswer.trim(), ignoreCase = true) ||
+                                                userSelIdx.toString() == q.correctAnswer.trim()
                                     }
-                                } else {
-                                    val concept = currentConcept
-                                    val newStatus = if (correct) "PASSED" else "RETRY_PENDING"
-                                    db.historyDao().insertHistory(
-                                        QuestionHistory(
-                                            conceptTitle = title,
-                                            topic = topic,
-                                            questionText = questionText,
-                                            userAnswer = if (questionType == "CODE") codeAnswerText else selectedOptionIndex.toString(),
-                                            correctAnswer = expectedAnswer,
-                                            isCorrect = correct,
+
+                                    if (isQCorrect) correctCount++
+
+                                    val savedUserAns = if (q.questionType == "CODE") userCode.trim() else q.optionsList.getOrNull(userSelIdx) ?: userSelIdx.toString()
+                                    breakdownBuilder.append("Q${i + 1}: ${if (isQCorrect) "✅ Correct" else "❌ Wrong"}\n")
+                                    breakdownBuilder.append("   Your: $savedUserAns\n")
+                                    if (!isQCorrect) {
+                                        breakdownBuilder.append("   Explanation: ${q.explanation}\n")
+                                    }
+                                    breakdownBuilder.append("\n")
+                                }
+
+                                totalScore = correctCount
+                                totalQuestionsCount = questionsList.size
+                                val passed = if (questionsList.size > 1) correctCount >= 2 else correctCount >= 1
+                                isPassed = passed
+                                resultBreakdownText = breakdownBuilder.toString().trim()
+                                showResultDialog = true
+
+                                coroutineScope.launch {
+                                    val firstQ = questionsList.first()
+                                    val firstUserIdx = selectedOptionIndices[0] ?: -1
+                                    val firstCode = codeAnswers[0] ?: ""
+                                    val firstUserAns = if (firstQ.questionType == "CODE") firstCode else firstQ.optionsList.getOrNull(firstUserIdx) ?: firstUserIdx.toString()
+
+                                    val currentItem = pendingRetryItem
+                                    if (currentItem != null) {
+                                        val newStatus = if (passed) "PASSED" else "RETRY_PENDING"
+                                        val updatedHistory = currentItem.copy(
+                                            userAnswer = firstUserAns,
+                                            isCorrect = passed,
                                             status = newStatus,
-                                            explanation = rawExplanation,
-                                            optionsJson = optionsJson,
-                                            questionType = questionType,
-                                            codeSnippetPrefix = codePrefix,
-                                            conceptSummary = summary,
-                                            isStarred = isStarred
+                                            answeredAt = System.currentTimeMillis()
                                         )
-                                    )
-                                    if (concept != null) {
-                                        db.conceptDao().markConceptUsed(concept.id)
-                                    }
-                                    if (correct) {
-                                        db.historyDao().markConceptPassed(title)
+                                        db.historyDao().updateHistory(updatedHistory)
+                                        if (passed) {
+                                            db.historyDao().markConceptPassed(currentItem.conceptTitle)
+                                        }
+                                    } else {
+                                        val concept = currentConcept
+                                        val newStatus = if (passed) "PASSED" else "RETRY_PENDING"
+                                        db.historyDao().insertHistory(
+                                            QuestionHistory(
+                                                conceptTitle = title,
+                                                topic = topic,
+                                                questionText = firstQ.questionText,
+                                                userAnswer = firstUserAns,
+                                                correctAnswer = firstQ.correctAnswer,
+                                                isCorrect = passed,
+                                                status = newStatus,
+                                                explanation = firstQ.explanation,
+                                                optionsJson = JSONArray(firstQ.optionsList).toString(),
+                                                questionType = firstQ.questionType,
+                                                codeSnippetPrefix = firstQ.codeSnippetPrefix,
+                                                questionsJson = rawQuestionsJson,
+                                                conceptSummary = summary,
+                                                isStarred = isStarred
+                                            )
+                                        )
+                                        if (concept != null) {
+                                            db.conceptDao().markConceptUsed(concept.id)
+                                        }
+                                        if (passed) {
+                                            db.historyDao().markConceptPassed(title)
+                                        }
                                     }
                                 }
-                            }
-                        },
-                        enabled = (questionType == "MCQ" && selectedOptionIndex != -1) ||
-                                (questionType == "CODE" && codeAnswerText.isNotBlank()),
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ElegantPrimary,
-                            contentColor = ElegantOnPrimary
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Submit",
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "SUBMIT ANSWER",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
-                        )
+                            },
+                            enabled = isCurrentAnswered,
+                            shape = CircleShape,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ElegantPrimary,
+                                contentColor = ElegantOnPrimary
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Submit",
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "SUBMIT QUIZ & UNLOCK",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -596,7 +716,7 @@ fun UnlockQuizScreen(
                     shape = RoundedCornerShape(28.dp),
                     title = {
                         Surface(
-                            color = if (isAnswerCorrect) SuccessGreen.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f),
+                            color = if (isPassed) SuccessGreen.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f),
                             shape = RoundedCornerShape(12.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
@@ -611,13 +731,13 @@ fun UnlockQuizScreen(
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(
-                                        imageVector = if (isAnswerCorrect) Icons.Default.CheckCircle else Icons.Default.Warning,
+                                        imageVector = if (isPassed) Icons.Default.CheckCircle else Icons.Default.Warning,
                                         contentDescription = null,
-                                        tint = if (isAnswerCorrect) SuccessGreen else ErrorRed
+                                        tint = if (isPassed) SuccessGreen else ErrorRed
                                     )
                                     Text(
-                                        text = if (isAnswerCorrect) "Correct Answer!" else "Wrong Answer",
-                                        color = if (isAnswerCorrect) SuccessGreen else ErrorRed,
+                                        text = if (isPassed) "Quiz Passed ($totalScore/$totalQuestionsCount)" else "Quiz Failed ($totalScore/$totalQuestionsCount)",
+                                        color = if (isPassed) SuccessGreen else ErrorRed,
                                         fontSize = 18.sp,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -646,21 +766,30 @@ fun UnlockQuizScreen(
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                text = if (isAnswerCorrect) "Great job! You have unlocked your phone." else "Retry now or try again later?",
+                                text = if (isPassed) "Great job! You answered $totalScore out of $totalQuestionsCount correctly and unlocked your phone." else "You scored $totalScore out of $totalQuestionsCount. Retry now or practice again later?",
                                 color = TextPrimary,
-                                fontSize = 16.sp,
+                                fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
-                            Text(
-                                text = if (isAnswerCorrect) explanationText else "If you choose to try later, this question will appear again the next time you unlock your device to help reinforce the concept.",
-                                color = TextSecondary,
-                                fontSize = 14.sp,
-                                lineHeight = 20.sp
-                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = DarkBackground,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = resultBreakdownText,
+                                    color = TextSecondary,
+                                    fontSize = 12.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    lineHeight = 18.sp,
+                                    modifier = Modifier.padding(10.dp)
+                                )
+                            }
                         }
                     },
                     confirmButton = {
-                        if (isAnswerCorrect) {
+                        if (isPassed) {
                             Button(
                                 onClick = onDismiss,
                                 shape = CircleShape,
@@ -671,8 +800,9 @@ fun UnlockQuizScreen(
                         } else {
                             Button(
                                 onClick = {
-                                    selectedOptionIndex = -1
-                                    codeAnswerText = ""
+                                    currentQuestionIndex = 0
+                                    selectedOptionIndices.clear()
+                                    codeAnswers.clear()
                                     showResultDialog = false
                                 },
                                 shape = CircleShape,
@@ -680,12 +810,12 @@ fun UnlockQuizScreen(
                             ) {
                                 Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Retry Now", color = ElegantOnPrimary, fontWeight = FontWeight.Bold)
+                                Text("Retry Quiz Now", color = ElegantOnPrimary, fontWeight = FontWeight.Bold)
                             }
                         }
                     },
                     dismissButton = {
-                        if (!isAnswerCorrect) {
+                        if (!isPassed) {
                             OutlinedButton(
                                 onClick = onDismiss,
                                 shape = CircleShape,
@@ -701,6 +831,55 @@ fun UnlockQuizScreen(
             }
         }
     }
+}
+
+fun parseQuestionsList(
+    questionsJson: String?,
+    fallbackQuestionText: String,
+    fallbackQuestionType: String,
+    fallbackOptionsJson: String?,
+    fallbackCodePrefix: String?,
+    fallbackCorrectAnswer: String,
+    fallbackExplanation: String
+): List<QuizQuestion> {
+    if (!questionsJson.isNullOrBlank()) {
+        try {
+            val array = JSONArray(questionsJson)
+            val list = mutableListOf<QuizQuestion>()
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val qText = obj.optString("questionText", obj.optString("question", fallbackQuestionText))
+                val qType = obj.optString("questionType", fallbackQuestionType)
+                val optArray = obj.optJSONArray("options")
+                val opts = mutableListOf<String>()
+                if (optArray != null) {
+                    for (j in 0 until optArray.length()) {
+                        opts.add(optArray.getString(j))
+                    }
+                } else if (qType == "TRUE_FALSE") {
+                    opts.addAll(listOf("True", "False"))
+                }
+                val codePref = obj.optString("codeSnippetPrefix", null)
+                val cAns = obj.optString("correctAnswer", "0")
+                val exp = obj.optString("explanation", fallbackExplanation)
+                list.add(QuizQuestion(qText, qType, opts, codePref, cAns, exp))
+            }
+            if (list.isNotEmpty()) return list
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    return listOf(
+        QuizQuestion(
+            questionText = fallbackQuestionText,
+            questionType = fallbackQuestionType,
+            optionsList = parseOptionsJson(fallbackOptionsJson),
+            codeSnippetPrefix = fallbackCodePrefix,
+            correctAnswer = fallbackCorrectAnswer,
+            explanation = fallbackExplanation
+        )
+    )
 }
 
 private fun parseOptionsJson(jsonStr: String?): List<String> {

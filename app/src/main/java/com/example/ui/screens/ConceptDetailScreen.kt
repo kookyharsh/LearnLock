@@ -202,11 +202,23 @@ fun ConceptDetailScreen(
                         }
                     }
 
-                    // Question & Answer Details
+                    // Concept Quizzes (3 Questions)
                     Spacer(modifier = Modifier.height(20.dp))
 
+                    val questionsList = remember(item) {
+                        com.example.ui.quiz.parseQuestionsList(
+                            questionsJson = item.questionsJson,
+                            fallbackQuestionText = item.questionText,
+                            fallbackQuestionType = item.questionType,
+                            fallbackOptionsJson = item.optionsJson,
+                            fallbackCodePrefix = item.codeSnippetPrefix,
+                            fallbackCorrectAnswer = item.correctAnswer,
+                            fallbackExplanation = item.explanation
+                        )
+                    }
+
                     Text(
-                        text = "CONCEPT QUIZ QUESTION",
+                        text = "CONCEPT QUIZZES (${questionsList.size} QUESTIONS)",
                         color = TextMuted,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
@@ -215,30 +227,43 @@ fun ConceptDetailScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = DarkSurfaceVariant,
-                        border = CardDefaults.outlinedCardBorder().copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(
-                                text = item.questionText,
-                                color = TextPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold
-                            )
-
-                            if (item.explanation.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(10.dp))
+                    questionsList.forEachIndexed { idx, q ->
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = DarkSurfaceVariant,
+                            border = CardDefaults.outlinedCardBorder().copy(
+                                brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 10.dp)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
                                 Text(
-                                    text = "Explanation: ${item.explanation}",
-                                    color = TextMuted,
-                                    fontSize = 13.sp,
-                                    lineHeight = 18.sp
+                                    text = "Q${idx + 1}. ${q.questionText}",
+                                    color = TextPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold
                                 )
+                                if (q.optionsList.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    q.optionsList.forEach { opt ->
+                                        Text(
+                                            text = "• $opt",
+                                            color = TextSecondary,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                                if (q.explanation.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Text(
+                                        text = "Explanation: ${q.explanation}",
+                                        color = TextMuted,
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp
+                                    )
+                                }
                             }
                         }
                     }

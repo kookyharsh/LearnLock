@@ -271,17 +271,30 @@ fun SettingsScreen(
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
-                                val parts = startTimeInput.split(":")
-                                val h = parts.getOrNull(0)?.toIntOrNull() ?: 9
-                                val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                val (h, m) = try {
+                                    val format = if (startTimeInput.contains("AM") || startTimeInput.contains("PM")) {
+                                        java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                                    } else {
+                                        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                                    }
+                                    val date = format.parse(startTimeInput)
+                                    val cal = java.util.Calendar.getInstance().apply { if (date != null) this.time = date }
+                                    cal.get(java.util.Calendar.HOUR_OF_DAY) to cal.get(java.util.Calendar.MINUTE)
+                                } catch (e: Exception) {
+                                    9 to 0
+                                }
+
                                 android.app.TimePickerDialog(
                                     context,
                                     { _, hour, minute ->
-                                        val formatted = String.format(java.util.Locale.getDefault(), "%02d:%02d", hour, minute)
+                                        val cal = java.util.Calendar.getInstance()
+                                        cal.set(java.util.Calendar.HOUR_OF_DAY, hour)
+                                        cal.set(java.util.Calendar.MINUTE, minute)
+                                        val formatted = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(cal.time)
                                         startTimeInput = formatted
                                         prefsManager.setLearningWindowStart(formatted)
                                     },
-                                    h, m, true
+                                    h, m, false
                                 ).show()
                             }
                     ) {
@@ -307,17 +320,30 @@ fun SettingsScreen(
                         modifier = Modifier
                             .weight(1f)
                             .clickable {
-                                val parts = endTimeInput.split(":")
-                                val h = parts.getOrNull(0)?.toIntOrNull() ?: 21
-                                val m = parts.getOrNull(1)?.toIntOrNull() ?: 0
+                                val (h, m) = try {
+                                    val format = if (endTimeInput.contains("AM") || endTimeInput.contains("PM")) {
+                                        java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                                    } else {
+                                        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                                    }
+                                    val date = format.parse(endTimeInput)
+                                    val cal = java.util.Calendar.getInstance().apply { if (date != null) this.time = date }
+                                    cal.get(java.util.Calendar.HOUR_OF_DAY) to cal.get(java.util.Calendar.MINUTE)
+                                } catch (e: Exception) {
+                                    21 to 0
+                                }
+
                                 android.app.TimePickerDialog(
                                     context,
                                     { _, hour, minute ->
-                                        val formatted = String.format(java.util.Locale.getDefault(), "%02d:%02d", hour, minute)
+                                        val cal = java.util.Calendar.getInstance()
+                                        cal.set(java.util.Calendar.HOUR_OF_DAY, hour)
+                                        cal.set(java.util.Calendar.MINUTE, minute)
+                                        val formatted = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault()).format(cal.time)
                                         endTimeInput = formatted
                                         prefsManager.setLearningWindowEnd(formatted)
                                     },
-                                    h, m, true
+                                    h, m, false
                                 ).show()
                             }
                     ) {

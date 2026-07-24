@@ -42,8 +42,26 @@ fun LearnScreen(
     val recentHistory by db.historyDao().getRecentlyViewedHistory(10).collectAsState(initial = emptyList())
     var selectedDetailConcept by remember { mutableStateOf<QuestionHistory?>(null) }
 
-    val windowStart = prefsManager.getLearningWindowStart()
-    val windowEnd = prefsManager.getLearningWindowEnd()
+    val windowStartRaw = prefsManager.getLearningWindowStart()
+    val windowEndRaw = prefsManager.getLearningWindowEnd()
+
+    val formatTime = { time: String ->
+        try {
+            if (time.contains("AM") || time.contains("PM")) {
+                time
+            } else {
+                val sdf24 = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+                val sdf12 = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
+                val date = sdf24.parse(time)
+                if (date != null) sdf12.format(date) else time
+            }
+        } catch (e: Exception) {
+            time
+        }
+    }
+
+    val windowStart = formatTime(windowStartRaw)
+    val windowEnd = formatTime(windowEndRaw)
 
     val triggerConceptGeneration: () -> Unit = {
         if (!isGeneratingConcepts) {

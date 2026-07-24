@@ -122,12 +122,22 @@ class UnlockReceiver : BroadcastReceiver() {
                 val startStr = prefsManager.getLearningWindowStart()
                 val endStr = prefsManager.getLearningWindowEnd()
 
-                val sdf = SimpleDateFormat("HH:mm", Locale.getDefault())
-                val nowStr = sdf.format(Calendar.getInstance().time)
+                val sdf12 = SimpleDateFormat("hh:mm a", Locale.getDefault())
+                val sdf24 = SimpleDateFormat("HH:mm", Locale.getDefault())
 
-                val nowTime = sdf.parse(nowStr)
-                val startTime = sdf.parse(startStr)
-                val endTime = sdf.parse(endStr)
+                val nowStr = sdf12.format(Calendar.getInstance().time)
+                val nowTime = sdf12.parse(nowStr)
+
+                val parseTimeStr = { str: String ->
+                    if (str.contains("AM") || str.contains("PM")) {
+                        sdf12.parse(str)
+                    } else {
+                        sdf24.parse(str)
+                    }
+                }
+
+                val startTime = parseTimeStr(startStr)
+                val endTime = parseTimeStr(endStr)
 
                 if (nowTime != null && startTime != null && endTime != null) {
                     val inWindow = if (startTime.before(endTime)) {

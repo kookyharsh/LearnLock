@@ -13,6 +13,8 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -47,8 +49,14 @@ fun HistoryScreen(
 
     val filteredHistory = remember(allHistory, selectedTopicFilter, selectedStatusFilter) {
         allHistory.filter { item ->
-            (selectedTopicFilter == "All" || item.topic.equals(selectedTopicFilter, ignoreCase = true)) &&
-                    (selectedStatusFilter == "All" || item.status == selectedStatusFilter)
+            val matchesTopic = (selectedTopicFilter == "All" || item.topic.equals(selectedTopicFilter, ignoreCase = true))
+            val matchesStatus = when (selectedStatusFilter) {
+                "PASSED" -> item.status == "PASSED"
+                "RETRY_PENDING" -> item.status == "RETRY_PENDING"
+                "STARRED" -> item.isStarred
+                else -> true
+            }
+            matchesTopic && matchesStatus
         }
     }
 
@@ -130,20 +138,35 @@ fun HistoryScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         // Status Filter Chips
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("All", "PASSED", "RETRY_PENDING").forEach { status ->
-                val displayLabel = when (status) {
-                    "PASSED" -> "Passed"
-                    "RETRY_PENDING" -> "Retry Pending"
-                    else -> "All Status"
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("All", "PASSED", "RETRY_PENDING").forEach { status ->
+                    val displayLabel = when (status) {
+                        "PASSED" -> "Passed"
+                        "RETRY_PENDING" -> "Retry Pending"
+                        else -> "All Status"
+                    }
+                    FilterChip(
+                        selected = selectedStatusFilter == status,
+                        onClick = { selectedStatusFilter = status },
+                        label = { Text(displayLabel, fontSize = 12.sp) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = CodeBlue.copy(alpha = 0.2f),
+                            selectedLabelColor = CodeBlue,
+                            containerColor = DarkSurface,
+                            labelColor = TextSecondary
+                        )
+                    )
                 }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
-                    selected = selectedStatusFilter == status,
-                    onClick = { selectedStatusFilter = status },
-                    label = { Text(displayLabel, fontSize = 12.sp) },
+                    selected = selectedStatusFilter == "STARRED",
+                    onClick = { selectedStatusFilter = "STARRED" },
+                    label = { Text("Starred ⭐", fontSize = 12.sp) },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = CodeBlue.copy(alpha = 0.2f),
-                        selectedLabelColor = CodeBlue,
+                        selectedContainerColor = GoldStar.copy(alpha = 0.2f),
+                        selectedLabelColor = GoldStar,
                         containerColor = DarkSurface,
                         labelColor = TextSecondary
                     )
@@ -175,6 +198,13 @@ fun HistoryScreen(
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                     context.startActivity(intent)
+                },
+                onToggleStar = { historyItem ->
+                    val newStar = !historyItem.isStarred
+                    coroutineScope.launch {
+                        db.historyDao().updateStarStatus(historyItem.id, newStar)
+                        db.conceptDao().updateStarStatusByTitle(historyItem.conceptTitle, newStar)
+                    }
                 }
             )
         }
@@ -184,7 +214,8 @@ fun HistoryScreen(
 @Composable
 private fun LazyLazyHistoryList(
     historyList: List<QuestionHistory>,
-    onRetryItem: (QuestionHistory) -> Unit
+    onRetryItem: (QuestionHistory) -> Unit,
+    onToggleStar: (QuestionHistory) -> Unit
 ) {
     val sdf = remember { SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()) }
 
@@ -233,11 +264,26 @@ private fun LazyLazyHistoryList(
                             }
                         }
 
-                        Text(
-                            text = sdf.format(Date(item.answeredAt)),
-                            color = TextMuted,
-                            fontSize = 11.sp
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = { onToggleStar(item) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (item.isStarred) Icons.Default.Star else Icons.Outlined.StarBorder,
+                                    contentDescription = "Star Concept",
+                                    tint = if (item.isStarred) GoldStar else TextMuted
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(4.dp))
+
+                            Text(
+                                text = sdf.format(Date(item.answeredAt)),
+                                color = TextMuted,
+                                fontSize = 11.sp
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(8.dp))
@@ -266,14 +312,14 @@ private fun LazyLazyHistoryList(
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text(
-                                text = "Your Answer: ${item.userAnswer}",
+                                text = "Your Answer: ${formatAnswerText(item.userAnswer, item.optionsJson)}",
                                 color = if (item.isCorrect) SuccessGreen else ErrorRed,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold
                             )
                             if (!item.isCorrect) {
                                 Text(
-                                    text = "Expected: ${item.correctAnswer}",
+                                    text = "Expected: ${formatAnswerText(item.correctAnswer, item.optionsJson)}",
                                     color = TextSecondary,
                                     fontSize = 12.sp
                                 )
@@ -311,4 +357,34 @@ private fun LazyLazyHistoryList(
             }
         }
     }
+}
+
+private fun formatAnswerText(answerRaw: String, optionsJson: String?): String {
+    if (answerRaw.isBlank()) return answerRaw
+    if (!optionsJson.isNullOrBlank()) {
+        try {
+            val array = org.json.JSONArray(optionsJson)
+            val optionsList = mutableListOf<String>()
+            for (i in 0 until array.length()) {
+                optionsList.add(array.getString(i))
+            }
+            val idx = answerRaw.trim().toIntOrNull()
+            if (idx != null && idx in optionsList.indices) {
+                return optionsList[idx]
+            }
+            val letterIdx = when (answerRaw.trim().uppercase()) {
+                "A" -> 0
+                "B" -> 1
+                "C" -> 2
+                "D" -> 3
+                else -> -1
+            }
+            if (letterIdx != -1 && letterIdx in optionsList.indices) {
+                return optionsList[letterIdx]
+            }
+        } catch (e: Exception) {
+            // fallback
+        }
+    }
+    return answerRaw
 }
