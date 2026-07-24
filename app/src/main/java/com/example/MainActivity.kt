@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import com.example.data.preferences.AppPreferencesManager
 import com.example.ui.tour.CoachmarkOverlay
 import com.example.ui.tour.CoachmarkStep
 import com.example.ui.screens.HistoryScreen

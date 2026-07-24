@@ -107,11 +107,13 @@ fun CoachmarkOverlay(
     val density = LocalDensity.current
     
     // Draw semi-transparent background with cut-out / spotlight effect
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .clickable(enabled = false) {} // block click propagation
     ) {
+        val screenWidth = constraints.maxWidth.toFloat()
+
         Canvas(modifier = Modifier.fillMaxSize()) {
             val canvasWidth = size.width
             val canvasHeight = size.height
@@ -155,8 +157,6 @@ fun CoachmarkOverlay(
         if (targetCoordinates != null && targetCoordinates.isAttached) {
             val position = targetCoordinates.positionInWindow()
             val targetSize = targetCoordinates.size
-            
-            val screenWidth = size.width
             
             // Layout position coordinates
             val targetCenterX = position.x + targetSize.width / 2
