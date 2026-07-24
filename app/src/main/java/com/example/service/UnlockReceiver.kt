@@ -149,12 +149,7 @@ class UnlockReceiver : BroadcastReceiver() {
                     val db = AppDatabase.getDatabase(context)
                     var unusedCount = db.conceptDao().getUnusedCountDirect()
 
-                    // If DB is completely empty, insert default concepts first so quiz is instantly usable
-                    if (unusedCount == 0) {
-                        Log.d("UnlockReceiver", "Database empty. Seeding default starter concepts...")
-                        db.conceptDao().insertConcepts(GeminiConceptGenerator.getDefaultConcepts())
-                        unusedCount = db.conceptDao().getUnusedCountDirect()
-                    }
+
 
                     val apiKey = prefsManager.getApiKey()
                     if (unusedCount < 3 && apiKey.isNotBlank()) {

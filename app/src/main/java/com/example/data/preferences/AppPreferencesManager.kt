@@ -147,8 +147,6 @@ class AppPreferencesManager(private val context: Context) {
         private const val KEY_GOOGLE_USER_EMAIL = "google_user_email"
         private const val KEY_TOUR_COMPLETED = "tour_completed"
 
-        val DEFAULT_TOPICS = setOf(
-            "World History", "Geography", "Biology", "Astronomy", "Literature", "Psychology", "Economics", "Computer Science"
-        )
+        val DEFAULT_TOPICS = emptySet<String>()
     }
 }

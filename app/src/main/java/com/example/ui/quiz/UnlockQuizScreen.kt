@@ -86,15 +86,7 @@ fun UnlockQuizScreen(
                 db.conceptDao().getNextUnusedConcept()
             }
 
-            if (nextConcept == null) {
-                // Seed default fallback concepts if DB has no unused concepts
-                db.conceptDao().insertConcepts(GeminiConceptGenerator.getDefaultConcepts())
-                nextConcept = if (selectedTopics.isNotEmpty()) {
-                    db.conceptDao().getNextUnusedConceptForTopics(selectedTopics)
-                } else {
-                    db.conceptDao().getNextUnusedConcept()
-                }
-            }
+
 
             currentConcept = nextConcept
         }

@@ -124,19 +124,46 @@ class GeminiConceptGenerator(
             return@withContext emptyList<ConceptItem>()
         }
 
-        val topicList = if (topics.isEmpty()) listOf("React", "SQL", "DSA", "Python") else topics.toList()
-        val selectedTopic = topicList.random()
+        if (topics.isEmpty()) {
+            Log.w("GeminiGenerator", "No topics selected by user.")
+            return@withContext emptyList<ConceptItem>()
+        }
+
+        val selectedTopic = topics.toList().random()
+
+        val isTechnicalTopic = selectedTopic.contains(
+            Regex("(?i)code|coding|python|java|javascript|kotlin|react|sql|dsa|algorithm|data structure|system design|android|dev|programming|web|css|html|git|backend|frontend|computer science")
+        )
+
+        val personaInstruction = if (isTechnicalTopic) {
+            "You are an expert Computer Science and Software Engineering tutor."
+        } else {
+            "You are an expert tutor specializing exclusively in '$selectedTopic'. DO NOT act as a computer science or programming tutor."
+        }
+
+        val subjectRules = if (isTechnicalTopic) {
+            """
+            - You may generate code examples and use questionType "MCQ" or "CODE".
+            """.trimIndent()
+        } else {
+            """
+            - CRITICAL: Focus EXCLUSIVELY on '$selectedTopic'.
+            - DO NOT output programming code, Python syntax, algorithms, or computer science concepts.
+            - Set questionType STRICTLY to "MCQ". Do NOT use "CODE" or fill-in-the-blank programming questions.
+            - Set codeExample and codeSnippetPrefix to null.
+            - For options (4 choices), provide 4 distinct, unambiguous choices. If asking about symbols or punctuation, render the actual symbols or clear choice text directly in the choices.
+            """.trimIndent()
+        }
 
         val prompt = """
-            You are a general knowledge and learning tutor.
+            $personaInstruction
             Generate $count unique concepts and quiz questions for the topic '$selectedTopic'.
-            For each concept:
-            1. Provide a short concept title.
-            2. Provide a detailed concept Explanation (200-300 words). Explain what it is, why it is important, where it is used, and provide a concrete example.
-            3. Provide a brief code or text example snippet if applicable.
-            4. Provide either an "MCQ" (4 options) or "CODE" (fill-in-the-blank or text completion query) question to test understanding.
-            5. Provide the exact correctAnswer ("0", "1", "2", "3" for MCQ index, or fill-in string for CODE).
-            6. Provide a pregenerated explanation detailing why the answer is correct and common pitfalls.
+
+            Rules:
+            1. Provide a short, relevant concept title.
+            2. Provide a detailed concept explanation (150-250 words) appropriate for '$selectedTopic'. Explain what it is, why it is important, and provide a clear example.
+            3. Provide a pregenerated explanation detailing why the correct answer is right and common misconceptions.
+            $subjectRules
 
             Return ONLY a valid JSON array matching this structure:
             [
@@ -144,24 +171,12 @@ class GeminiConceptGenerator(
                 "topic": "$selectedTopic",
                 "conceptTitle": "Title",
                 "conceptSummary": "Detailed summary...",
-                "codeExample": "example sample or null",
+                "codeExample": null,
                 "questionType": "MCQ",
                 "questionText": "Question text",
                 "options": ["Option A", "Option B", "Option C", "Option D"],
                 "codeSnippetPrefix": null,
                 "correctAnswer": "0",
-                "explanation": "Explanation text..."
-              },
-              {
-                "topic": "$selectedTopic",
-                "conceptTitle": "Title",
-                "conceptSummary": "Detailed summary...",
-                "codeExample": "example sample or null",
-                "questionType": "CODE",
-                "questionText": "Question text",
-                "options": null,
-                "codeSnippetPrefix": "Fill in: ",
-                "correctAnswer": "answer",
                 "explanation": "Explanation text..."
               }
             ]
@@ -302,7 +317,7 @@ class GeminiConceptGenerator(
                 results.add(
                     ConceptItem(
                         topic = item.optString("topic", selectedTopic),
-                        conceptTitle = item.optString("conceptTitle", "CS Concept"),
+                        conceptTitle = item.optString("conceptTitle", "$selectedTopic Concept"),
                         conceptSummary = item.optString("conceptSummary", "Concept explanation..."),
                         codeExample = item.optString("codeExample").takeIf { it.isNotBlank() && it != "null" },
                         questionType = item.optString("questionType", "MCQ"),
@@ -325,41 +340,7 @@ class GeminiConceptGenerator(
 
     companion object {
         fun getDefaultConcepts(): List<ConceptItem> {
-            return listOf(
-                ConceptItem(
-                    topic = "Data Structures",
-                    conceptTitle = "Hash Maps & O(1) Lookups",
-                    conceptSummary = "Hash maps map unique keys to values using a hashing function. In average cases, inserting, searching, and deleting keys takes O(1) constant time.",
-                    codeExample = "val map = HashMap<String, Int>()\nmap[\"Alice\"] = 95\nval score = map[\"Alice\"] // O(1) average lookup",
-                    questionType = "MCQ",
-                    questionText = "What is the average time complexity for key lookups in a Hash Map?",
-                    optionsJson = "[\"O(1)\", \"O(log n)\", \"O(n)\", \"O(n²)\"]",
-                    correctAnswer = "0",
-                    explanation = "Hash Maps calculate array indices directly using a hash function, resulting in average O(1) constant time lookups."
-                ),
-                ConceptItem(
-                    topic = "Algorithms",
-                    conceptTitle = "Binary Search Algorithm",
-                    conceptSummary = "Binary Search locates a target value in a sorted array by repeatedly dividing the search range in half, achieving logarithmic O(log n) efficiency.",
-                    codeExample = "fun binarySearch(arr: IntArray, target: Int): Int {\n    var low = 0; var high = arr.size - 1\n    while (low <= high) {\n        val mid = (low + high) / 2\n        if (arr[mid] == target) return mid\n        if (arr[mid] < target) low = mid + 1 else high = mid - 1\n    }\n    return -1\n}",
-                    questionType = "MCQ",
-                    questionText = "What prerequisite MUST an array satisfy for Binary Search to work?",
-                    optionsJson = "[\"The array must be sorted\", \"Elements must all be positive\", \"The size must be even\", \"It must fit in RAM\"]",
-                    correctAnswer = "0",
-                    explanation = "Binary Search depends on comparing the middle element to narrow down the remaining half, which requires a sorted array."
-                ),
-                ConceptItem(
-                    topic = "System Design",
-                    conceptTitle = "Caching & LRU Eviction Policy",
-                    conceptSummary = "Caches store frequent data in fast memory. A Least Recently Used (LRU) policy automatically evicts the entry that hasn't been accessed for the longest time.",
-                    codeExample = "val cache = LinkedHashMap<Int, String>(capacity, 0.75f, accessOrder = true)",
-                    questionType = "MCQ",
-                    questionText = "Which item is discarded when an LRU Cache reaches full capacity?",
-                    optionsJson = "[\"The item least recently accessed\", \"The newest item added\", \"The largest file in memory\", \"A randomly chosen key\"]",
-                    correctAnswer = "0",
-                    explanation = "LRU stands for Least Recently Used; it removes the oldest unaccessed item to free up memory space."
-                )
-            )
+            return emptyList()
         }
     }
 }
