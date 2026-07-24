@@ -32,6 +32,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextDecoration
 import com.example.data.AppDatabase
 import com.example.data.entity.ConceptItem
 import com.example.data.entity.QuestionHistory
@@ -284,15 +289,13 @@ fun UnlockQuizScreen(
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 200.dp, max = 360.dp)
                         ) {
                             Box(
                                 modifier = Modifier
                                     .padding(16.dp)
-                                    .verticalScroll(rememberScrollState())
                             ) {
                                 Text(
-                                    text = summary,
+                                    text = parseMarkdownToAnnotatedString(summary),
                                     color = TextSecondary,
                                     fontSize = 15.sp,
                                     lineHeight = 23.sp
@@ -690,3 +693,53 @@ private fun parseOptionsJson(jsonStr: String?): List<String> {
         listOf("Option A", "Option B", "Option C", "Option D")
     }
 }
+
+private fun parseMarkdownToAnnotatedString(text: String): AnnotatedString {
+    return buildAnnotatedString {
+        var index = 0
+        while (index < text.length) {
+            when {
+                text.startsWith("**", index) && text.indexOf("**", index + 2) != -1 -> {
+                    val end = text.indexOf("**", index + 2)
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                    append(text.substring(index + 2, end))
+                    pop()
+                    index = end + 2
+                }
+                text.startsWith("__", index) && text.indexOf("__", index + 2) != -1 -> {
+                    val end = text.indexOf("__", index + 2)
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                    append(text.substring(index + 2, end))
+                    pop()
+                    index = end + 2
+                }
+                text.startsWith("<u>", index) && text.indexOf("</u>", index + 3) != -1 -> {
+                    val end = text.indexOf("</u>", index + 3)
+                    pushStyle(SpanStyle(textDecoration = TextDecoration.Underline))
+                    append(text.substring(index + 3, end))
+                    pop()
+                    index = end + 4
+                }
+                text.startsWith("*", index) && text.indexOf("*", index + 1) != -1 -> {
+                    val end = text.indexOf("*", index + 1)
+                    pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
+                    append(text.substring(index + 1, end))
+                    pop()
+                    index = end + 1
+                }
+                text.startsWith("_", index) && text.indexOf("_", index + 1) != -1 -> {
+                    val end = text.indexOf("_", index + 1)
+                    pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
+                    append(text.substring(index + 1, end))
+                    pop()
+                    index = end + 1
+                }
+                else -> {
+                    append(text[index])
+                    index++
+                }
+            }
+        }
+    }
+}
+
