@@ -395,6 +395,9 @@ fun UnlockQuizScreen(
                     val qIndex = currentQuestionIndex
                     val selectedIdx = selectedOptionIndices[qIndex] ?: -1
                     val currentCodeInput = codeAnswers[qIndex] ?: ""
+                    val isTextInputQuestion = currentQ.questionType == "CODE" || 
+                                              currentQ.questionType.contains("FILL", ignoreCase = true) || 
+                                              currentQ.optionsList.isEmpty()
 
                     // Progress bar & Question Step Badge
                     Card(
@@ -475,99 +478,99 @@ fun UnlockQuizScreen(
 
                             Spacer(modifier = Modifier.height(16.dp))
 
-                            // Render choices (CODE vs MCQ/TRUE_FALSE)
-                            if (currentQ.questionType == "CODE") {
-                                Surface(
-                                    shape = RoundedCornerShape(16.dp),
-                                    color = DarkBackground,
-                                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(14.dp)) {
-                                        Text(
-                                            text = "-- Fill in code answer",
-                                            color = TextMuted,
-                                            fontSize = 11.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        if (!currentQ.codeSnippetPrefix.isNullOrBlank()) {
-                                            Text(
-                                                text = currentQ.codeSnippetPrefix,
-                                                color = CodeBlue,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 14.sp
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        OutlinedTextField(
-                                            value = currentCodeInput,
-                                            onValueChange = { codeAnswers[qIndex] = it },
-                                            placeholder = { Text("code answer...", color = TextMuted, fontSize = 13.sp) },
-                                            textStyle = LocalTextStyle.current.copy(
-                                                color = TextPrimary,
-                                                fontFamily = FontFamily.Monospace,
-                                                fontSize = 14.sp
-                                            ),
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = ElegantPrimary,
-                                                unfocusedBorderColor = DarkBorder,
-                                                focusedContainerColor = DarkSurface,
-                                                unfocusedContainerColor = DarkSurface
-                                            ),
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                    }
+                            // Render choices (CODE / FILL_BLANK vs MCQ / TRUE_FALSE)
+                            if (isTextInputQuestion) {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = DarkBackground,
+                            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(modifier = Modifier.padding(14.dp)) {
+                                Text(
+                                    text = if (currentQ.questionType == "CODE") "-- Fill in code answer" else "-- Type your answer",
+                                    color = TextMuted,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                if (!currentQ.codeSnippetPrefix.isNullOrBlank()) {
+                                    Text(
+                                        text = currentQ.codeSnippetPrefix,
+                                        color = CodeBlue,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 14.sp
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
                                 }
-                            } else {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    currentQ.optionsList.forEachIndexed { index, optionText ->
-                                        val isSelected = selectedIdx == index
-                                        val borderColor = if (isSelected) ElegantPrimary else DarkBorder
-                                        val bgColor = if (isSelected) ElegantPrimaryContainer.copy(alpha = 0.3f) else DarkSurface
+                                OutlinedTextField(
+                                    value = currentCodeInput,
+                                    onValueChange = { codeAnswers[qIndex] = it },
+                                    placeholder = { Text("type answer here...", color = TextMuted, fontSize = 13.sp) },
+                                    textStyle = LocalTextStyle.current.copy(
+                                        color = TextPrimary,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 14.sp
+                                    ),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = ElegantPrimary,
+                                        unfocusedBorderColor = DarkBorder,
+                                        focusedContainerColor = DarkSurface,
+                                        unfocusedContainerColor = DarkSurface
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            currentQ.optionsList.forEachIndexed { index, optionText ->
+                                val isSelected = selectedIdx == index
+                                val borderColor = if (isSelected) ElegantPrimary else DarkBorder
+                                val bgColor = if (isSelected) ElegantPrimaryContainer.copy(alpha = 0.3f) else DarkSurface
 
-                                        Surface(
-                                            shape = RoundedCornerShape(14.dp),
-                                            color = bgColor,
-                                            border = CardDefaults.outlinedCardBorder().copy(
-                                                brush = androidx.compose.ui.graphics.SolidColor(borderColor)
-                                            ),
+                                Surface(
+                                    shape = RoundedCornerShape(14.dp),
+                                    color = bgColor,
+                                    border = CardDefaults.outlinedCardBorder().copy(
+                                        brush = androidx.compose.ui.graphics.SolidColor(borderColor)
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(14.dp))
+                                        .clickable { selectedOptionIndices[qIndex] = index }
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
                                             modifier = Modifier
-                                                .fillMaxWidth()
-                                                .clip(RoundedCornerShape(14.dp))
-                                                .clickable { selectedOptionIndices[qIndex] = index }
-                                        ) {
-                                            Row(
-                                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .size(20.dp)
-                                                        .border(2.dp, borderColor, CircleShape)
-                                                        .background(if (isSelected) ElegantPrimary else androidx.compose.ui.graphics.Color.Transparent, CircleShape)
-                                                )
-                                                Spacer(modifier = Modifier.width(12.dp))
-                                                Text(
-                                                    text = optionText,
-                                                    color = if (isSelected) TextPrimary else TextSecondary,
-                                                    fontSize = 14.sp
-                                                )
-                                            }
-                                        }
+                                                .size(20.dp)
+                                                .border(2.dp, borderColor, CircleShape)
+                                                .background(if (isSelected) ElegantPrimary else androidx.compose.ui.graphics.Color.Transparent, CircleShape)
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Text(
+                                            text = optionText,
+                                            color = if (isSelected) TextPrimary else TextSecondary,
+                                            fontSize = 14.sp
+                                        )
                                     }
                                 }
                             }
                         }
                     }
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-                    val isCurrentAnswered = if (currentQ.questionType == "CODE") {
-                        currentCodeInput.isNotBlank()
-                    } else {
-                        selectedIdx != -1
-                    }
+            val isCurrentAnswered = if (isTextInputQuestion) {
+                currentCodeInput.isNotBlank()
+            } else {
+                selectedIdx != -1
+            }
 
                     if (qIndex < questionsList.size - 1) {
                         Button(
@@ -601,8 +604,9 @@ fun UnlockQuizScreen(
                                 questionsList.forEachIndexed { i, q ->
                                     val userSelIdx = selectedOptionIndices[i] ?: -1
                                     val userCode = codeAnswers[i] ?: ""
+                                    val isTextQ = q.questionType == "CODE" || q.questionType.contains("FILL", ignoreCase = true) || q.optionsList.isEmpty()
                                     
-                                    val isQCorrect = if (q.questionType == "CODE") {
+                                    val isQCorrect = if (isTextQ) {
                                         userCode.trim().equals(q.correctAnswer.trim(), ignoreCase = true)
                                     } else {
                                         val letter = when (userSelIdx) {
@@ -614,7 +618,7 @@ fun UnlockQuizScreen(
 
                                     if (isQCorrect) correctCount++
 
-                                    val savedUserAns = if (q.questionType == "CODE") userCode.trim() else q.optionsList.getOrNull(userSelIdx) ?: userSelIdx.toString()
+                                    val savedUserAns = if (isTextQ) userCode.trim() else q.optionsList.getOrNull(userSelIdx) ?: userSelIdx.toString()
                                     breakdownBuilder.append("Q${i + 1}: ${if (isQCorrect) "✅ Correct" else "❌ Wrong"}\n")
                                     breakdownBuilder.append("   Your: $savedUserAns\n")
                                     if (!isQCorrect) {
@@ -634,7 +638,8 @@ fun UnlockQuizScreen(
                                     val firstQ = questionsList.first()
                                     val firstUserIdx = selectedOptionIndices[0] ?: -1
                                     val firstCode = codeAnswers[0] ?: ""
-                                    val firstUserAns = if (firstQ.questionType == "CODE") firstCode else firstQ.optionsList.getOrNull(firstUserIdx) ?: firstUserIdx.toString()
+                                    val isFirstTextQ = firstQ.questionType == "CODE" || firstQ.questionType.contains("FILL", ignoreCase = true) || firstQ.optionsList.isEmpty()
+                                    val firstUserAns = if (isFirstTextQ) firstCode else firstQ.optionsList.getOrNull(firstUserIdx) ?: firstUserIdx.toString()
 
                                     val currentItem = pendingRetryItem
                                     if (currentItem != null) {
