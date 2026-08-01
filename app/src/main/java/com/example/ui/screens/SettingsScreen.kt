@@ -60,6 +60,9 @@ fun SettingsScreen(
 
     var selectedTopics by remember { mutableStateOf(prefsManager.getSelectedTopics()) }
 
+    var questionsCountInput by remember { mutableIntStateOf(prefsManager.getQuestionsPerQuiz()) }
+    var difficultyInput by remember { mutableStateOf(prefsManager.getDifficultyLevel()) }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -484,6 +487,117 @@ fun SettingsScreen(
                                 labelColor = TextPrimary
                             )
                         )
+                    }
+                }
+            }
+        }
+
+        // Quiz & Difficulty Customization Card
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
+            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    text = "Quiz & Difficulty Customization",
+                    color = TextPrimary,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Configure question count per unlock and AI concept depth.",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Questions Count Slider
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Questions per Quiz",
+                        color = TextPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = ElegantPrimary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "$questionsCountInput ${if (questionsCountInput == 1) "Question" else "Questions"}",
+                            color = ElegantPrimary,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                        )
+                    }
+                }
+
+                Slider(
+                    value = questionsCountInput.toFloat(),
+                    onValueChange = { newValue ->
+                        val count = newValue.toInt().coerceIn(1, 5)
+                        questionsCountInput = count
+                        prefsManager.setQuestionsPerQuiz(count)
+                    },
+                    valueRange = 1f..5f,
+                    steps = 3,
+                    colors = SliderDefaults.colors(
+                        thumbColor = ElegantPrimary,
+                        activeTrackColor = ElegantPrimary,
+                        inactiveTrackColor = DarkBackground
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Difficulty Level Selector Chips
+                Text(
+                    text = "Difficulty Level",
+                    color = TextPrimary,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val levels = listOf("Easy", "Medium", "Hard")
+                    levels.forEach { level ->
+                        val isSelected = difficultyInput.equals(level, ignoreCase = true)
+                        Surface(
+                            shape = CircleShape,
+                            color = if (isSelected) ElegantPrimary else DarkBackground,
+                            border = if (isSelected) null else CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable {
+                                    difficultyInput = level
+                                    prefsManager.setDifficultyLevel(level)
+                                }
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(vertical = 10.dp)
+                            ) {
+                                Text(
+                                    text = level,
+                                    color = if (isSelected) ElegantOnPrimary else TextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
+                                )
+                            }
+                        }
                     }
                 }
             }

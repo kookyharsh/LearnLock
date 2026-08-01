@@ -389,9 +389,7 @@ fun UnlockQuizScreen(
                     val qIndex = currentQuestionIndex
                     val selectedIdx = selectedOptionIndices[qIndex] ?: -1
                     val currentCodeInput = codeAnswers[qIndex] ?: ""
-                    val isTextInputQuestion = currentQ.questionType == "CODE" || 
-                                              currentQ.questionType.contains("FILL", ignoreCase = true) || 
-                                              currentQ.optionsList.isEmpty()
+                    val isTextInputQuestion = false
 
                     // Progress bar & Question Step Badge
                     Card(
@@ -881,15 +879,25 @@ fun parseQuestionsList(
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
                 val qText = obj.optString("questionText", obj.optString("question", fallbackQuestionText))
-                val qType = obj.optString("questionType", fallbackQuestionType)
+                var qType = obj.optString("questionType", fallbackQuestionType)
                 val optArray = obj.optJSONArray("options")
                 val opts = mutableListOf<String>()
                 if (optArray != null) {
                     for (j in 0 until optArray.length()) {
                         opts.add(optArray.getString(j))
                     }
-                } else if (qType == "TRUE_FALSE") {
-                    opts.addAll(listOf("True", "False"))
+                }
+
+                if (opts.size < 2) {
+                    if (qType == "TRUE_FALSE") {
+                        opts.clear()
+                        opts.addAll(listOf("True", "False"))
+                    } else {
+                        qType = "MCQ"
+                        opts.clear()
+                        val answerStr = obj.optString("correctAnswer", "").trim()
+                        opts.addAll(buildSmartOptions(qText, answerStr))
+                    }
                 }
                 val rawCodePref = if (obj.isNull("codeSnippetPrefix")) null else obj.getString("codeSnippetPrefix")
                 val codePref = rawCodePref?.takeIf { it.isValidSnippet() }
@@ -907,7 +915,7 @@ fun parseQuestionsList(
         QuizQuestion(
             questionText = fallbackQuestionText,
             questionType = fallbackQuestionType,
-            optionsList = parseOptionsJson(fallbackOptionsJson),
+            optionsList = parseOptionsJson(fallbackOptionsJson, fallbackQuestionText, fallbackCorrectAnswer),
             codeSnippetPrefix = cleanFallbackPrefix,
             correctAnswer = fallbackCorrectAnswer,
             explanation = fallbackExplanation
@@ -915,9 +923,9 @@ fun parseQuestionsList(
     )
 }
 
-private fun parseOptionsJson(jsonStr: String?): List<String> {
+private fun parseOptionsJson(jsonStr: String?, qText: String = "", cAns: String = ""): List<String> {
     if (jsonStr.isNullOrBlank()) {
-        return listOf("Option A", "Option B", "Option C", "Option D")
+        return buildSmartOptions(qText, cAns)
     }
     return try {
         val array = JSONArray(jsonStr)
@@ -925,9 +933,42 @@ private fun parseOptionsJson(jsonStr: String?): List<String> {
         for (i in 0 until array.length()) {
             list.add(array.getString(i))
         }
-        if (list.size >= 2) list else listOf("Option A", "Option B", "Option C", "Option D")
+        if (list.size >= 2) list else buildSmartOptions(qText, cAns)
     } catch (_: Exception) {
-        listOf("Option A", "Option B", "Option C", "Option D")
+        buildSmartOptions(qText, cAns)
     }
+}
+
+private fun buildSmartOptions(qText: String, correctAnswerStr: String): List<String> {
+    val trimmedAnswer = correctAnswerStr.trim()
+    val isAnswerText = trimmedAnswer.isNotBlank() && trimmedAnswer.toIntOrNull() == null
+    
+    val firstOption = if (isAnswerText) trimmedAnswer else "Correct statement/result based on summary"
+    val lowerQ = qText.lowercase()
+
+    val distractors = when {
+        lowerQ.contains("join") || lowerQ.contains("select") || lowerQ.contains("sql") || lowerQ.contains("table") -> listOf(
+            "All rows from left table regardless of matches in right table.",
+            "All rows from right table regardless of matches in left table.",
+            "Cartesian product of both tables without matching conditions."
+        )
+        lowerQ.contains("exception") || lowerQ.contains("error") || lowerQ.contains("try") || lowerQ.contains("catch") -> listOf(
+            "Forces immediate JVM shutdown without stack trace.",
+            "Suppresses all runtime errors automatically.",
+            "Bypasses exception handling blocks."
+        )
+        lowerQ.contains("memory") || lowerQ.contains("stack") || lowerQ.contains("heap") -> listOf(
+            "Allocated exclusively on thread-local stack memory.",
+            "Stored permanently in CPU registers.",
+            "Cached temporarily in disk swap space."
+        )
+        else -> listOf(
+            "Applies to all unindexed records.",
+            "None of the above statements are correct.",
+            "Requires explicit manual memory deallocation."
+        )
+    }
+
+    return listOf(firstOption, distractors[0], distractors[1], distractors[2])
 }
 

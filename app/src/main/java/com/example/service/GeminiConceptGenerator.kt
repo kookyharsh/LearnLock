@@ -128,14 +128,17 @@ class GeminiConceptGenerator(
         }
 
         val selectedTopic = topics.toList().random()
+        val questionsPerQuiz = prefsManager.getQuestionsPerQuiz()
+        val difficultyLevel = prefsManager.getDifficultyLevel()
 
         val prompt = """
             You are an expert tutor in '$selectedTopic'.
+            Target Difficulty Level: '$difficultyLevel' (Adapt depth and question difficulty to '$difficultyLevel').
             Generate $count unique concepts for the topic '$selectedTopic'.
-            Each concept must include a structured, easy-to-read explanation and exactly 3 quiz questions.
+            Each concept must include a structured, easy-to-read explanation and an array of EXACTLY $questionsPerQuiz quiz questions.
 
             CRITICAL RULE FOR QUESTIONS:
-            - ALL 3 questions MUST be directly answerable using ONLY the facts and concepts explicitly taught in the 'conceptSummary' (or 'codeExample' / 'codeSnippetPrefix') for that card.
+            - ALL $questionsPerQuiz questions MUST be directly answerable using ONLY the facts and concepts explicitly taught in the 'conceptSummary' (or 'codeExample' / 'codeSnippetPrefix') for that card.
             - Do NOT ask outside trivia or details that are not explicitly covered in the concept summary text!
 
             Rules:
@@ -146,7 +149,7 @@ class GeminiConceptGenerator(
                - 2-3 bullet points (`- **Point**: detail`) breaking down key mechanics/properties.
                - 1-sentence quick takeaway or real-world example at the bottom.
             3. codeExample: A short example, formula, SQL query, code snippet, or illustration relevant to '$selectedTopic' (or null if not needed). If code, format with clean line breaks (`\n`).
-            4. questions: Array of EXACTLY 3 questions. Allowed question types: "MCQ" or "TRUE_FALSE".
+            4. questions: Array of EXACTLY $questionsPerQuiz questions. Allowed question types: randomly mix "MCQ" or "TRUE_FALSE".
                - For MCQ: Provide 4 distinct choices in "options", set "correctAnswer" to index "0", "1", "2", or "3".
                - For TRUE_FALSE: "options" = ["True", "False"], set "correctAnswer" to "0" or "1".
                - codeSnippetPrefix: Optional short 1-3 line text excerpt, formula, code, or context for the question (or null).
@@ -166,22 +169,6 @@ class GeminiConceptGenerator(
                     "codeSnippetPrefix": null,
                     "correctAnswer": "0",
                     "explanation": "Why Option A is correct based on the summary."
-                  },
-                  {
-                    "questionType": "TRUE_FALSE",
-                    "questionText": "Question 2 text...",
-                    "options": ["True", "False"],
-                    "codeSnippetPrefix": null,
-                    "correctAnswer": "0",
-                    "explanation": "Why True is correct based on the summary."
-                  },
-                  {
-                    "questionType": "MCQ",
-                    "questionText": "Question 3 text...",
-                    "options": ["Option A", "Option B", "Option C", "Option D"],
-                    "codeSnippetPrefix": null,
-                    "correctAnswer": "2",
-                    "explanation": "Why Option C is correct based on the summary."
                   }
                 ]
               }

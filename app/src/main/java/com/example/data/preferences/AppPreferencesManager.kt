@@ -133,6 +133,22 @@ class AppPreferencesManager(private val context: Context) {
         prefs.edit().putString(KEY_CUSTOM_MODEL, model.trim()).apply()
     }
 
+    fun getQuestionsPerQuiz(): Int {
+        return prefs.getInt(KEY_QUESTIONS_PER_QUIZ, 3).coerceIn(1, 5)
+    }
+
+    fun setQuestionsPerQuiz(count: Int) {
+        prefs.edit().putInt(KEY_QUESTIONS_PER_QUIZ, count.coerceIn(1, 5)).apply()
+    }
+
+    fun getDifficultyLevel(): String {
+        return prefs.getString(KEY_DIFFICULTY_LEVEL, "Medium") ?: "Medium"
+    }
+
+    fun setDifficultyLevel(level: String) {
+        prefs.edit().putString(KEY_DIFFICULTY_LEVEL, level.trim()).apply()
+    }
+
     companion object {
         private const val KEY_API_KEY = "api_key"
         private const val KEY_CUSTOM_MODEL = "custom_model"
@@ -146,6 +162,8 @@ class AppPreferencesManager(private val context: Context) {
         private const val KEY_LAST_SYNC = "last_sync_timestamp"
         private const val KEY_GOOGLE_USER_EMAIL = "google_user_email"
         private const val KEY_TOUR_COMPLETED = "tour_completed"
+        private const val KEY_QUESTIONS_PER_QUIZ = "questions_per_quiz"
+        private const val KEY_DIFFICULTY_LEVEL = "difficulty_level"
 
         val DEFAULT_TOPICS = emptySet<String>()
     }
