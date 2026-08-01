@@ -60,7 +60,6 @@ import com.example.ui.theme.CodeBlue
 import com.example.ui.theme.DarkBackground
 import com.example.ui.theme.DarkBorder
 import com.example.ui.theme.DarkSurface
-import com.example.ui.theme.DarkSurfaceVariant
 import com.example.ui.theme.ElegantOnPrimary
 import com.example.ui.theme.ElegantOnPrimaryContainer
 import com.example.ui.theme.ElegantPrimary
@@ -77,7 +76,7 @@ fun ConceptDetailScreen(
     item: QuestionHistory,
     onBack: () -> Unit,
     onStarToggled: (Boolean) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     var isStarred by remember { mutableStateOf(item.isStarred) }
 
@@ -327,7 +326,7 @@ fun ConceptDetailScreen(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 modifier = Modifier.weight(1f)
                                             ) {
-                                                val letterLabel = when (optIdx) { 0 -> "A"; 1 -> "B"; 2 -> "C"; 3 -> "D"; else -> "${optIdx + 1}" }
+                                                val letterLabel = when (optIdx) { 0 -> "A"; 1 -> "B"; 2 -> "C"; 3 -> "D"; else -> (optIdx + 1).toString() }
                                                 Surface(
                                                     shape = CircleShape,
                                                     color = if (isCorrect) SuccessGreen else if (isUserSel) ElegantPrimary else DarkSurface,
@@ -440,61 +439,6 @@ fun ConceptDetailScreen(
     }
 }
 
-private fun parseMarkdownToAnnotatedString(text: String): AnnotatedString {
-    return buildAnnotatedString {
-        var index = 0
-        while (index < text.length) {
-            when {
-                text.startsWith("**", index) && text.indexOf("**", index + 2) != -1 -> {
-                    val end = text.indexOf("**", index + 2)
-                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = TextPrimary))
-                    append(text.substring(index + 2, end))
-                    pop()
-                    index = end + 2
-                }
-                text.startsWith("__", index) && text.indexOf("__", index + 2) != -1 -> {
-                    val end = text.indexOf("__", index + 2)
-                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = TextPrimary))
-                    append(text.substring(index + 2, end))
-                    pop()
-                    index = end + 2
-                }
-                text.startsWith("<u>", index) && text.indexOf("</u>", index + 3) != -1 -> {
-                    val end = text.indexOf("</u>", index + 3)
-                    pushStyle(SpanStyle(textDecoration = TextDecoration.Underline, color = TextPrimary))
-                    append(text.substring(index + 3, end))
-                    pop()
-                    index = end + 4
-                }
-                text.startsWith("`", index) && text.indexOf("`", index + 1) != -1 -> {
-                    val end = text.indexOf("`", index + 1)
-                    pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, color = CodeBlue))
-                    append(text.substring(index + 1, end))
-                    pop()
-                    index = end + 1
-                }
-                text.startsWith("*", index) && text.indexOf("*", index + 1) != -1 -> {
-                    val end = text.indexOf("*", index + 1)
-                    pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                    append(text.substring(index + 1, end))
-                    pop()
-                    index = end + 1
-                }
-                text.startsWith("_", index) && text.indexOf("_", index + 1) != -1 -> {
-                    val end = text.indexOf("_", index + 1)
-                    pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                    append(text.substring(index + 1, end))
-                    pop()
-                    index = end + 1
-                }
-                else -> {
-                    append(text[index])
-                    index++
-                }
-            }
-        }
-    }
-}
 
 private fun checkIsCorrect(optIndex: Int, optionText: String, correctAnswer: String): Boolean {
     val trimmed = correctAnswer.trim()

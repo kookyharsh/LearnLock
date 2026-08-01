@@ -1,6 +1,5 @@
 package com.example.service
 
-import android.content.Context
 import android.util.Log
 import com.example.data.entity.ConceptItem
 import com.example.data.preferences.AppPreferencesManager
@@ -15,8 +14,7 @@ import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
 class GeminiConceptGenerator(
-    private val context: Context,
-    private val prefsManager: AppPreferencesManager
+    private val prefsManager: AppPreferencesManager,
 ) {
     private val client = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -121,12 +119,12 @@ class GeminiConceptGenerator(
         val apiKey = prefsManager.getApiKey().trim()
         if (apiKey.isBlank()) {
             Log.w("GeminiGenerator", "No API Key configured.")
-            return@withContext emptyList<ConceptItem>()
+            return@withContext emptyList()
         }
 
         if (topics.isEmpty()) {
             Log.w("GeminiGenerator", "No topics selected by user.")
-            return@withContext emptyList<ConceptItem>()
+            return@withContext emptyList()
         }
 
         val selectedTopic = topics.toList().random()
@@ -183,7 +181,7 @@ class GeminiConceptGenerator(
         """.trimIndent()
 
         try {
-            var textResponse = ""
+            var textResponse: String
             val configuredModel = prefsManager.getCustomModel().ifBlank { null }
             val requestBuilder = Request.Builder()
             
@@ -213,13 +211,13 @@ class GeminiConceptGenerator(
 
                 if (!response.isSuccessful || responseBody.isNullOrBlank()) {
                     Log.e("GeminiGenerator", "OpenRouter request failed code=${response.code}, body=$responseBody")
-                    return@withContext emptyList<ConceptItem>()
+                    return@withContext emptyList()
                 }
 
                 val rootJson = JSONObject(responseBody)
                 val choices = rootJson.optJSONArray("choices")
-                if (choices == null || choices.length() == 0) {
-                    return@withContext emptyList<ConceptItem>()
+                if (choices == null || (choices.length() == 0)) {
+                    return@withContext emptyList()
                 }
                 textResponse = choices.getJSONObject(0).optJSONObject("message")?.optString("content") ?: ""
 
@@ -247,13 +245,13 @@ class GeminiConceptGenerator(
 
                 if (!response.isSuccessful || responseBody.isNullOrBlank()) {
                     Log.e("GeminiGenerator", "OpenAI request failed code=${response.code}, body=$responseBody")
-                    return@withContext emptyList<ConceptItem>()
+                    return@withContext emptyList()
                 }
 
                 val rootJson = JSONObject(responseBody)
                 val choices = rootJson.optJSONArray("choices")
-                if (choices == null || choices.length() == 0) {
-                    return@withContext emptyList<ConceptItem>()
+                if (choices == null || (choices.length() == 0)) {
+                    return@withContext emptyList()
                 }
                 textResponse = choices.getJSONObject(0).optJSONObject("message")?.optString("content") ?: ""
 
@@ -286,13 +284,13 @@ class GeminiConceptGenerator(
 
                 if (!response.isSuccessful || responseBody.isNullOrBlank()) {
                     Log.e("GeminiGenerator", "Gemini request failed code=${response.code}, body=$responseBody")
-                    return@withContext emptyList<ConceptItem>()
+                    return@withContext emptyList()
                 }
 
                 val rootJson = JSONObject(responseBody)
                 val candidates = rootJson.optJSONArray("candidates")
                 if (candidates == null || candidates.length() == 0) {
-                    return@withContext emptyList<ConceptItem>()
+                    return@withContext emptyList()
                 }
 
                 val content = candidates.getJSONObject(0).optJSONObject("content")
@@ -341,15 +339,11 @@ class GeminiConceptGenerator(
             }
 
             results
-        } catch (e: Exception) {
-            Log.e("GeminiGenerator", "Error calling Gemini API: ${e.message}", e)
-            emptyList<ConceptItem>()
+        } catch (_: Exception) {
+            emptyList()
         }
     }
 
     companion object {
-        fun getDefaultConcepts(): List<ConceptItem> {
-            return emptyList()
-        }
     }
 }

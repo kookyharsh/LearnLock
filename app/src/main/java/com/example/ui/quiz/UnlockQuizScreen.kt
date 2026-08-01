@@ -1,6 +1,5 @@
 package com.example.ui.quiz
 
-import android.content.Context
 import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -18,7 +17,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.NavigateNext
+import androidx.compose.material.icons.automirrored.filled.NavigateNext
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
@@ -75,15 +74,15 @@ fun UnlockQuizScreen(
     var isLoading by remember { mutableStateOf(true) }
 
     var isQuizStarted by remember { mutableStateOf(false) }
-    var currentQuestionIndex by remember { mutableStateOf(0) }
+    var currentQuestionIndex by remember { mutableIntStateOf(0) }
     
     // Track selected option indices and code answers per question index
     val selectedOptionIndices = remember { mutableStateMapOf<Int, Int>() }
     val codeAnswers = remember { mutableStateMapOf<Int, String>() }
 
     var showResultDialog by remember { mutableStateOf(false) }
-    var totalScore by remember { mutableStateOf(0) }
-    var totalQuestionsCount by remember { mutableStateOf(1) }
+    var totalScore by remember { mutableIntStateOf(0) }
+    var totalQuestionsCount by remember { mutableIntStateOf(1) }
     var isPassed by remember { mutableStateOf(false) }
     var resultBreakdownText by remember { mutableStateOf("") }
     var isStarred by remember { mutableStateOf(false) }
@@ -432,7 +431,7 @@ fun UnlockQuizScreen(
                             Spacer(modifier = Modifier.height(8.dp))
 
                             LinearProgressIndicator(
-                                progress = (qIndex + 1).toFloat() / questionsList.size,
+                                progress = { (qIndex + 1).toFloat() / questionsList.size },
                                 color = ElegantPrimary,
                                 trackColor = DarkBackground,
                                 modifier = Modifier
@@ -604,7 +603,7 @@ fun UnlockQuizScreen(
                                 letterSpacing = 1.sp
                             )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Icon(imageVector = Icons.Default.NavigateNext, contentDescription = null)
+                            Icon(imageVector = Icons.AutoMirrored.Filled.NavigateNext, contentDescription = null)
                         }
                     } else {
                         // Submit All Quiz Questions
@@ -892,7 +891,7 @@ fun parseQuestionsList(
                 } else if (qType == "TRUE_FALSE") {
                     opts.addAll(listOf("True", "False"))
                 }
-                val rawCodePref = if (obj.isNull("codeSnippetPrefix")) null else obj.optString("codeSnippetPrefix", null)
+                val rawCodePref = if (obj.isNull("codeSnippetPrefix")) null else obj.getString("codeSnippetPrefix")
                 val codePref = rawCodePref?.takeIf { it.isValidSnippet() }
                 val cAns = obj.optString("correctAnswer", "0")
                 val exp = obj.optString("explanation", fallbackExplanation)
@@ -927,63 +926,8 @@ private fun parseOptionsJson(jsonStr: String?): List<String> {
             list.add(array.getString(i))
         }
         if (list.size >= 2) list else listOf("Option A", "Option B", "Option C", "Option D")
-    } catch (e: Exception) {
+    } catch (_: Exception) {
         listOf("Option A", "Option B", "Option C", "Option D")
     }
 }
 
-private fun parseMarkdownToAnnotatedString(text: String): AnnotatedString {
-    return buildAnnotatedString {
-        var index = 0
-        while (index < text.length) {
-            when {
-                text.startsWith("**", index) && text.indexOf("**", index + 2) != -1 -> {
-                    val end = text.indexOf("**", index + 2)
-                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                    append(text.substring(index + 2, end))
-                    pop()
-                    index = end + 2
-                }
-                text.startsWith("__", index) && text.indexOf("__", index + 2) != -1 -> {
-                    val end = text.indexOf("__", index + 2)
-                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
-                    append(text.substring(index + 2, end))
-                    pop()
-                    index = end + 2
-                }
-                text.startsWith("<u>", index) && text.indexOf("</u>", index + 3) != -1 -> {
-                    val end = text.indexOf("</u>", index + 3)
-                    pushStyle(SpanStyle(textDecoration = TextDecoration.Underline))
-                    append(text.substring(index + 3, end))
-                    pop()
-                    index = end + 4
-                }
-                text.startsWith("`", index) && text.indexOf("`", index + 1) != -1 -> {
-                    val end = text.indexOf("`", index + 1)
-                    pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, color = CodeBlue))
-                    append(text.substring(index + 1, end))
-                    pop()
-                    index = end + 1
-                }
-                text.startsWith("*", index) && text.indexOf("*", index + 1) != -1 -> {
-                    val end = text.indexOf("*", index + 1)
-                    pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                    append(text.substring(index + 1, end))
-                    pop()
-                    index = end + 1
-                }
-                text.startsWith("_", index) && text.indexOf("_", index + 1) != -1 -> {
-                    val end = text.indexOf("_", index + 1)
-                    pushStyle(SpanStyle(fontStyle = FontStyle.Italic))
-                    append(text.substring(index + 1, end))
-                    pop()
-                    index = end + 1
-                }
-                else -> {
-                    append(text[index])
-                    index++
-                }
-            }
-        }
-    }
-}

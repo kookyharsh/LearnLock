@@ -37,7 +37,7 @@ import java.util.Locale
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -50,7 +50,7 @@ fun HistoryScreen(
 
     val filteredHistory = remember(allHistory, selectedTopicFilter, selectedStatusFilter) {
         allHistory.filter { item ->
-            val matchesTopic = (selectedTopicFilter == "All" || item.topic.equals(selectedTopicFilter, ignoreCase = true))
+            val matchesTopic = ((selectedTopicFilter == "All") || item.topic.equals(selectedTopicFilter, ignoreCase = true))
             val matchesStatus = when (selectedStatusFilter) {
                 "PASSED" -> item.status == "PASSED"
                 "RETRY_PENDING" -> item.status == "RETRY_PENDING"
@@ -221,20 +221,19 @@ fun HistoryScreen(
                     LazyLazyHistoryList(
                         historyList = filteredHistory,
                         onItemClick = { historyItem -> selectedDetailConcept = historyItem },
-                        onRetryItem = { historyItem ->
+                        onRetryItem = {
                             val intent = Intent(context, UnlockQuizActivity::class.java).apply {
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             }
                             context.startActivity(intent)
                         },
-                        onToggleStar = { historyItem ->
-                            val newStar = !historyItem.isStarred
-                            coroutineScope.launch {
-                                db.historyDao().updateStarStatus(historyItem.id, newStar)
-                                db.conceptDao().updateStarStatusByTitle(historyItem.conceptTitle, newStar)
-                            }
+                    ) { historyItem ->
+                        val newStar = !historyItem.isStarred
+                        coroutineScope.launch {
+                            db.historyDao().updateStarStatus(historyItem.id, newStar)
+                            db.conceptDao().updateStarStatusByTitle(historyItem.conceptTitle, newStar)
                         }
-                    )
+                    }
                 }
             }
         }
@@ -415,7 +414,7 @@ private fun formatAnswerText(answerRaw: String, optionsJson: String?): String {
             if (letterIdx != -1 && letterIdx in optionsList.indices) {
                 return optionsList[letterIdx]
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             // fallback
         }
     }

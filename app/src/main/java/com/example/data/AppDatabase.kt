@@ -12,7 +12,7 @@ import com.example.data.entity.QuestionHistory
 @Database(
     entities = [ConceptItem::class, QuestionHistory::class],
     version = 2,
-    exportSchema = false
+    exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun conceptDao(): ConceptDao
@@ -28,7 +28,7 @@ abstract class AppDatabase : RoomDatabase() {
                                 context.applicationContext,
                                 AppDatabase::class.java,
                                 "unlock_learn_db"
-                            ).fallbackToDestructiveMigration(false).build()
+                            ).fallbackToDestructiveMigration(dropAllTables = false).build()
                 INSTANCE = instance
                 instance
             }

@@ -10,7 +10,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Quiz
@@ -18,6 +17,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.net.toUri
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -62,8 +62,8 @@ fun MainAppScreen() {
 
     var selectedTab by remember { mutableStateOf(NavTab.LEARN) }
     var activeTourStep by remember {
-        mutableStateOf<CoachmarkStep?>(
-            if (!prefsManager.isTourCompleted()) CoachmarkStep.LEARN_TAB else null
+        mutableStateOf(
+            if (!prefsManager.isTourCompleted()) CoachmarkStep.LEARN_TAB else null,
         )
     }
 
@@ -82,7 +82,7 @@ fun MainAppScreen() {
         if (!Settings.canDrawOverlays(context)) {
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:${context.packageName}")
+                "package:${context.packageName}".toUri()
             )
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
@@ -121,7 +121,7 @@ fun MainAppScreen() {
                             unselectedTextColor = TextMuted
                         ),
                         modifier = Modifier.onGloballyPositioned { coordinates ->
-                            navTabCoordinates = navTabCoordinates + (tab to coordinates)
+                            navTabCoordinates += (tab to coordinates)
                         }
                     )
                 }
@@ -137,7 +137,7 @@ fun MainAppScreen() {
             when (selectedTab) {
                 NavTab.LEARN -> LearnScreen()
                 NavTab.HISTORY -> HistoryScreen()
-                NavTab.SETTINGS -> SettingsScreen(onStartTour = { activeTourStep = CoachmarkStep.LEARN_TAB })
+                NavTab.SETTINGS -> SettingsScreen { activeTourStep = CoachmarkStep.LEARN_TAB }
             }
         }
 
@@ -156,13 +156,13 @@ fun MainAppScreen() {
                     if (nextStepIndex < CoachmarkStep.entries.size) {
                         activeTourStep = CoachmarkStep.entries[nextStepIndex]
                     } else {
-                        prefsManager.setTourCompleted(true)
+                        prefsManager.setTourCompleted(completed = true)
                         activeTourStep = null
                         selectedTab = NavTab.LEARN
                     }
                 },
                 onSkip = {
-                    prefsManager.setTourCompleted(true)
+                    prefsManager.setTourCompleted(completed = true)
                     activeTourStep = null
                     selectedTab = NavTab.LEARN
                 }

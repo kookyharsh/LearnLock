@@ -6,7 +6,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
@@ -40,13 +39,13 @@ class UnlockOverlayService : Service() {
     @SuppressLint("ForegroundServiceType")
     private fun startForegroundNotification() {
         val channelId = "unlock_learn_channel"
-        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notificationManager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
                 "Unlock Learning Service",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_LOW,
             ).apply {
                 description = "Monitors phone unlocks to show educational CS concepts"
             }
@@ -100,7 +99,7 @@ class UnlockOverlayService : Service() {
         receiver?.let {
             try {
                 unregisterReceiver(it)
-            } catch (e: Exception) {
+            } catch (_: Exception) {
                 // Ignore if not registered
             }
         }

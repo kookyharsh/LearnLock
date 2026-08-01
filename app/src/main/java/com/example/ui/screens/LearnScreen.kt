@@ -30,7 +30,7 @@ import kotlinx.coroutines.launch
 
 @Composable
 fun LearnScreen(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
@@ -38,7 +38,7 @@ fun LearnScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var isServiceEnabled by remember { mutableStateOf(prefsManager.isUnlockServiceEnabled()) }
-    var isGeneratingConcepts by remember { mutableStateOf(false) }
+    var isGeneratingConcepts by remember { mutableStateOf(value = false) }
     val recentHistory by db.historyDao().getRecentlyViewedHistory(10).collectAsState(initial = emptyList())
     var selectedDetailConcept by remember { mutableStateOf<QuestionHistory?>(null) }
 
@@ -55,7 +55,7 @@ fun LearnScreen(
                 val date = sdf24.parse(time)
                 if (date != null) sdf12.format(date) else time
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             time
         }
     }
@@ -72,7 +72,7 @@ fun LearnScreen(
                 coroutineScope.launch {
                     isGeneratingConcepts = true
                     Toast.makeText(context, "Generating new concepts...", Toast.LENGTH_SHORT).show()
-                    val generator = GeminiConceptGenerator(context, prefsManager)
+                    val generator = GeminiConceptGenerator(prefsManager)
                     val newConcepts = generator.generateBatchConcepts(
                         topics = prefsManager.getSelectedTopics(),
                         count = 3

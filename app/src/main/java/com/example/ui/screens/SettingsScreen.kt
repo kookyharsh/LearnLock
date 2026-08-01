@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
@@ -17,7 +16,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Subject
+import androidx.compose.material.icons.automirrored.filled.Subject
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.*
@@ -42,7 +41,7 @@ import androidx.compose.material.icons.filled.CompassCalibration
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
-    onStartTour: (() -> Unit)? = null
+    onStartTour: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -50,7 +49,7 @@ fun SettingsScreen(
 
     var apiKeyInput by remember { mutableStateOf(prefsManager.getApiKey()) }
     var customModelInput by remember { mutableStateOf(prefsManager.getCustomModel()) }
-    var isApiKeyVisible by remember { mutableStateOf(false) }
+    var isApiKeyVisible by remember { mutableStateOf(value = false) }
 
     var isTestingKey by remember { mutableStateOf(false) }
 
@@ -59,7 +58,7 @@ fun SettingsScreen(
     var endTimeInput by remember { mutableStateOf(prefsManager.getLearningWindowEnd()) }
     var skipDuringActive by remember { mutableStateOf(prefsManager.isSkipDuringActiveWindow()) }
 
-    var selectedTopics by remember { mutableStateOf(prefsManager.getSelectedTopics().toMutableSet()) }
+    var selectedTopics by remember { mutableStateOf(prefsManager.getSelectedTopics()) }
 
     Column(
         modifier = modifier
@@ -93,8 +92,8 @@ fun SettingsScreen(
                 )
             }
 
-            if (onStartTour != null) {
-                IconButton(onClick = onStartTour) {
+            onStartTour?.let { tour ->
+                IconButton(onClick = tour) {
                     Icon(
                         imageVector = Icons.Default.CompassCalibration,
                         contentDescription = "Take Tour",
@@ -193,8 +192,8 @@ fun SettingsScreen(
                     onClick = {
                         coroutineScope.launch {
                             isTestingKey = true
-                            val generator = GeminiConceptGenerator(context, prefsManager)
-                            val (success, message) = generator.testApiKeyConnection()
+                            val generator = GeminiConceptGenerator(prefsManager)
+                            val (_, message) = generator.testApiKeyConnection()
                             Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                             isTestingKey = false
                         }
@@ -280,7 +279,7 @@ fun SettingsScreen(
                                     val date = format.parse(startTimeInput)
                                     val cal = java.util.Calendar.getInstance().apply { if (date != null) this.time = date }
                                     cal.get(java.util.Calendar.HOUR_OF_DAY) to cal.get(java.util.Calendar.MINUTE)
-                                } catch (e: Exception) {
+                                } catch (_: Exception) {
                                     9 to 0
                                 }
 
@@ -405,7 +404,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Subject,
+                        imageVector = Icons.AutoMirrored.Filled.Subject,
                         contentDescription = null,
                         tint = ElegantPrimary
                     )

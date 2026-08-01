@@ -164,7 +164,7 @@ class UnlockReceiver : BroadcastReceiver() {
                     val apiKey = prefsManager.getApiKey()
                     if (unusedCount < 3 && apiKey.isNotBlank()) {
                         Log.d("UnlockReceiver", "Queue low ($unusedCount unused). Generating concepts via AI...")
-                        val generator = GeminiConceptGenerator(context, prefsManager)
+                        val generator = GeminiConceptGenerator(prefsManager)
                         val newConcepts = generator.generateBatchConcepts(
                             topics = prefsManager.getSelectedTopics(),
                             count = 3
