@@ -178,8 +178,9 @@ sealed class MarkdownBlock {
 
 fun parseMarkdownBlocks(text: String): List<MarkdownBlock> {
     if (text.isBlank()) return emptyList()
+    val cleanText = text.replace("\\n", "\n")
     val blocks = mutableListOf<MarkdownBlock>()
-    val lines = text.lines()
+    val lines = cleanText.lines()
     var i = 0
 
     while (i < lines.size) {

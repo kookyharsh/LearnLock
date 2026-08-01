@@ -352,7 +352,7 @@ fun UnlockQuizScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = codeExample!!,
+                                text = codeExample!!.replace("\\n", "\n"),
                                 color = CodeBlue,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 14.sp,
@@ -490,7 +490,7 @@ fun UnlockQuizScreen(
                                 Spacer(modifier = Modifier.height(6.dp))
                                 if (currentQ.codeSnippetPrefix.isValidSnippet()) {
                                     Text(
-                                        text = currentQ.codeSnippetPrefix!!,
+                                        text = currentQ.codeSnippetPrefix!!.replace("\\n", "\n"),
                                         color = CodeBlue,
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 14.sp
@@ -526,7 +526,7 @@ fun UnlockQuizScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
                                     Text(
-                                        text = currentQ.codeSnippetPrefix!!,
+                                        text = currentQ.codeSnippetPrefix!!.replace("\\n", "\n"),
                                         color = CodeBlue,
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 13.sp,

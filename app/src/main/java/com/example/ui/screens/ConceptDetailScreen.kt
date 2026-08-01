@@ -215,7 +215,7 @@ fun ConceptDetailScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = item.codeSnippetPrefix!!,
+                            text = item.codeSnippetPrefix!!.replace("\\n", "\n"),
                             color = CodeBlue,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 14.sp,
