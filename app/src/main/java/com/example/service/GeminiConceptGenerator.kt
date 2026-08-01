@@ -298,13 +298,7 @@ class GeminiConceptGenerator(
                 textResponse = parts?.getJSONObject(0)?.optString("text") ?: ""
             }
 
-            val cleanedJsonText = textResponse.trim()
-                .removePrefix("```json")
-                .removePrefix("```")
-                .removeSuffix("```")
-                .trim()
-
-            val jsonArray = JSONArray(cleanedJsonText)
+            val jsonArray = sanitizeAndParseJsonArray(textResponse)
             val results = mutableListOf<ConceptItem>()
 
             for (i in 0 until jsonArray.length()) {
@@ -339,8 +333,48 @@ class GeminiConceptGenerator(
             }
 
             results
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.e("GeminiGenerator", "Error calling Gemini API: ${e.message}", e)
             emptyList()
+        }
+    }
+
+    private fun sanitizeAndParseJsonArray(rawText: String): JSONArray {
+        var trimmed = rawText.trim()
+        
+        // Strip markdown code fences if present
+        if (trimmed.startsWith("```")) {
+            val firstLineEnd = trimmed.indexOf('\n')
+            if (firstLineEnd != -1) {
+                trimmed = trimmed.substring(firstLineEnd + 1)
+            }
+            if (trimmed.endsWith("```")) {
+                trimmed = trimmed.substring(0, trimmed.length - 3)
+            }
+            trimmed = trimmed.trim()
+        }
+
+        // Extract exact JSON array bounds between first '[' and last ']'
+        val startIdx = trimmed.indexOf('[')
+        val endIdx = trimmed.lastIndexOf(']')
+        var jsonString = if (startIdx != -1 && endIdx > startIdx) {
+            trimmed.substring(startIdx, endIdx + 1)
+        } else {
+            trimmed
+        }
+
+        // Repair common LLM JSON syntax anomalies:
+        // 1. Keys with leading spaces like " "conceptTitle": -> "conceptTitle":
+        jsonString = jsonString.replace(Regex("\"\\s+([a-zA-Z0-9_]+)\"\\s*:"), "\"$1\":")
+        // 2. Trailing commas before closing brackets or braces
+        jsonString = jsonString.replace(Regex(",\\s*([\\]}])"), "$1")
+
+        return try {
+            JSONArray(jsonString)
+        } catch (e: Exception) {
+            Log.w("GeminiGenerator", "Initial JSON parse failed (${e.message}). Attempting fallback cleanup...", e)
+            val cleaned = jsonString.replace(Regex("[\\x00-\\x1F\\x7F]"), " ")
+            JSONArray(cleaned)
         }
     }
 
