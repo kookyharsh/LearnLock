@@ -1,5 +1,8 @@
 package com.example.ui.screens
 
+import com.example.ui.quiz.isValidSnippet
+import com.example.ui.quiz.QuizQuestion
+import com.example.ui.quiz.parseQuestionsList
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -202,7 +205,7 @@ fun ConceptDetailScreen(
                 // Article Summary Body (Rich Markdown Format)
                 MarkdownView(markdownText = item.conceptSummary ?: item.explanation)
 
-                if (!item.codeSnippetPrefix.isNullOrBlank()) {
+                if (item.codeSnippetPrefix.isValidSnippet()) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Surface(
                         shape = RoundedCornerShape(12.dp),
@@ -228,8 +231,8 @@ fun ConceptDetailScreen(
                 HorizontalDivider(color = DarkBorder, thickness = 1.dp)
                 Spacer(modifier = Modifier.height(20.dp))
 
-                val questionsList = remember(item) {
-                    com.example.ui.quiz.parseQuestionsList(
+                val questionsList: List<QuizQuestion> = remember(item) {
+                    parseQuestionsList(
                         questionsJson = item.questionsJson,
                         fallbackQuestionText = item.questionText,
                         fallbackQuestionType = item.questionType,

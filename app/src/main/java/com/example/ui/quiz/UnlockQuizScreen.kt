@@ -342,7 +342,7 @@ fun UnlockQuizScreen(
 
                     MarkdownView(markdownText = summary)
 
-                    if (!codeExample.isNullOrBlank()) {
+                    if (codeExample.isValidSnippet()) {
                         Spacer(modifier = Modifier.height(16.dp))
                         Surface(
                             shape = RoundedCornerShape(12.dp),
@@ -353,7 +353,7 @@ fun UnlockQuizScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = codeExample,
+                                text = codeExample!!,
                                 color = CodeBlue,
                                 fontFamily = FontFamily.Monospace,
                                 fontSize = 14.sp,
@@ -489,9 +489,9 @@ fun UnlockQuizScreen(
                                     fontFamily = FontFamily.Monospace
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
-                                if (!currentQ.codeSnippetPrefix.isNullOrBlank()) {
+                                if (currentQ.codeSnippetPrefix.isValidSnippet()) {
                                     Text(
-                                        text = currentQ.codeSnippetPrefix,
+                                        text = currentQ.codeSnippetPrefix!!,
                                         color = CodeBlue,
                                         fontFamily = FontFamily.Monospace,
                                         fontSize = 14.sp
@@ -519,6 +519,23 @@ fun UnlockQuizScreen(
                         }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (currentQ.codeSnippetPrefix.isValidSnippet()) {
+                                Surface(
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = DarkBackground,
+                                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Text(
+                                        text = currentQ.codeSnippetPrefix!!,
+                                        color = CodeBlue,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 13.sp,
+                                        lineHeight = 18.sp,
+                                        modifier = Modifier.padding(12.dp)
+                                    )
+                                }
+                            }
                             currentQ.optionsList.forEachIndexed { index, optionText ->
                                 val isSelected = selectedIdx == index
                                 val borderColor = if (isSelected) ElegantPrimary else DarkBorder
@@ -842,6 +859,12 @@ fun UnlockQuizScreen(
     }
 }
 
+fun String?.isValidSnippet(): Boolean {
+    if (this == null) return false
+    val trimmed = this.trim()
+    return trimmed.isNotEmpty() && !trimmed.equals("null", ignoreCase = true)
+}
+
 fun parseQuestionsList(
     questionsJson: String?,
     fallbackQuestionText: String,
@@ -851,6 +874,7 @@ fun parseQuestionsList(
     fallbackCorrectAnswer: String,
     fallbackExplanation: String
 ): List<QuizQuestion> {
+    val cleanFallbackPrefix = fallbackCodePrefix?.takeIf { it.isValidSnippet() }
     if (!questionsJson.isNullOrBlank()) {
         try {
             val array = JSONArray(questionsJson)
@@ -868,7 +892,8 @@ fun parseQuestionsList(
                 } else if (qType == "TRUE_FALSE") {
                     opts.addAll(listOf("True", "False"))
                 }
-                val codePref = obj.optString("codeSnippetPrefix", null)
+                val rawCodePref = if (obj.isNull("codeSnippetPrefix")) null else obj.optString("codeSnippetPrefix", null)
+                val codePref = rawCodePref?.takeIf { it.isValidSnippet() }
                 val cAns = obj.optString("correctAnswer", "0")
                 val exp = obj.optString("explanation", fallbackExplanation)
                 list.add(QuizQuestion(qText, qType, opts, codePref, cAns, exp))
@@ -884,7 +909,7 @@ fun parseQuestionsList(
             questionText = fallbackQuestionText,
             questionType = fallbackQuestionType,
             optionsList = parseOptionsJson(fallbackOptionsJson),
-            codeSnippetPrefix = fallbackCodePrefix,
+            codeSnippetPrefix = cleanFallbackPrefix,
             correctAnswer = fallbackCorrectAnswer,
             explanation = fallbackExplanation
         )

@@ -131,52 +131,26 @@ class GeminiConceptGenerator(
 
         val selectedTopic = topics.toList().random()
 
-        val isTechnicalTopic = selectedTopic.contains(
-            Regex("(?i)code|coding|python|java|javascript|kotlin|react|sql|dsa|algorithm|data structure|system design|android|dev|programming|web|css|html|git|backend|frontend|computer science")
-        )
-
-        val personaInstruction = if (isTechnicalTopic) {
-            "You are an expert Computer Science and Software Engineering tutor."
-        } else {
-            "You are an expert tutor specializing exclusively in '$selectedTopic'."
-        }
-
-        val subjectRules = if (isTechnicalTopic) {
-            """
-            - You may generate code examples and use questionType "MCQ" or "CODE" or "FILL_BLANK".
-            - CRITICAL: DO NOT generate long multi-line code implementation questions (e.g. "Write a class...", "Implement a function..."). Keep all questions short, clear, and micro-learning focused.
-            - For CODE or FILL_BLANK questions, keep the answer strictly to a short single-line expression or statement (e.g. "list.length", "map.get(key)").
-            """.trimIndent()
-        } else {
-            """
-            - CRITICAL: Focus EXCLUSIVELY on '$selectedTopic'.
-            - Set questionType STRICTLY to "MCQ". Do NOT use "CODE" or fill-in-the-blank programming questions.
-            - Set codeExample and codeSnippetPrefix to null.
-            - For options (4 choices), provide 4 distinct, unambiguous choices. If asking about symbols or punctuation, render the actual symbols or clear choice text directly in the choices.
-            """.trimIndent()
-        }
-
         val prompt = """
-            $personaInstruction
-            Generate $count unique concepts for the topic '$selectedTopic'. For each concept, provide a concise explanation and exactly 3 distinct questions.
+            You are an expert tutor in '$selectedTopic'.
+            Generate $count unique concepts for the topic '$selectedTopic'.
+            Each concept must include an explanation and exactly 3 questions.
 
             Rules:
-            1. Provide a short, relevant concept title.
-            2. Provide a detailed concept explanation (strictly 50-100 words) formatted in markdown (`**bold**`, `*italic*`, `<u>underline</u>`, code backticks where relevant). Explain what it is, why it matters, and a quick real-world example. Make it read like an engaging AI tutor message!
-            3. Provide an array "questions" containing EXACTLY 3 distinct short questions for this concept (e.g. MCQ, True/False, Fill in the Blank).
-               - DO NOT ask the user to write full classes, functions, or complex code blocks.
-               - For MCQ: provide 4 distinct choices in "options" array, and set "correctAnswer" to option index ("0", "1", "2", or "3").
-               - For TRUE_FALSE: set "options" to ["True", "False"], and set "correctAnswer" to "0" or "1".
-               - For FILL_BLANK: set "questionType" to "FILL_BLANK", provide a single word or short expression in "correctAnswer".
-               - For CODE: set "questionType" to "CODE", provide a 1-line code snippet prefix in "codeSnippetPrefix", and expected short 1-line answer in "correctAnswer".
-            $subjectRules
+            1. conceptTitle: Short, clear concept title.
+            2. conceptSummary: 50-100 words explanation formatted in markdown (`**bold**`, `*italic*`, backticks for key terms).
+            3. codeExample: A short example, formula, quote, snippet, or real-world illustration relevant to '$selectedTopic' (or null if not needed).
+            4. questions: Array of EXACTLY 3 questions. Allowed question types: "MCQ" or "TRUE_FALSE".
+               - For MCQ: Provide 4 distinct choices in "options", set "correctAnswer" to index "0", "1", "2", or "3".
+               - For TRUE_FALSE: "options" = ["True", "False"], set "correctAnswer" to "0" or "1".
+               - codeSnippetPrefix: Optional short 1-3 line text excerpt, formula, code, or context for the question (or null).
 
             Return ONLY a valid JSON array matching this structure:
             [
               {
                 "topic": "$selectedTopic",
                 "conceptTitle": "Title",
-                "conceptSummary": "Detailed summary (50-100 words with **markdown**)...",
+                "conceptSummary": "Clear 50-100 word explanation with **markdown**...",
                 "codeExample": null,
                 "questions": [
                   {
@@ -185,7 +159,7 @@ class GeminiConceptGenerator(
                     "options": ["Option A", "Option B", "Option C", "Option D"],
                     "codeSnippetPrefix": null,
                     "correctAnswer": "0",
-                    "explanation": "Why answer 0 is correct..."
+                    "explanation": "Why Option A is correct."
                   },
                   {
                     "questionType": "TRUE_FALSE",
@@ -193,7 +167,7 @@ class GeminiConceptGenerator(
                     "options": ["True", "False"],
                     "codeSnippetPrefix": null,
                     "correctAnswer": "0",
-                    "explanation": "Why True is correct..."
+                    "explanation": "Why True is correct."
                   },
                   {
                     "questionType": "MCQ",
@@ -201,7 +175,7 @@ class GeminiConceptGenerator(
                     "options": ["Option A", "Option B", "Option C", "Option D"],
                     "codeSnippetPrefix": null,
                     "correctAnswer": "2",
-                    "explanation": "Why Option C is correct..."
+                    "explanation": "Why Option C is correct."
                   }
                 ]
               }

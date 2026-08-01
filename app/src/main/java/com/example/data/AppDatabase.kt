@@ -25,10 +25,10 @@ abstract class AppDatabase : RoomDatabase() {
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
-                    context.applicationContext,
-                    AppDatabase::class.java,
-                    "unlock_learn_db"
-                ).fallbackToDestructiveMigration().build()
+                                context.applicationContext,
+                                AppDatabase::class.java,
+                                "unlock_learn_db"
+                            ).fallbackToDestructiveMigration(false).build()
                 INSTANCE = instance
                 instance
             }
