@@ -46,7 +46,7 @@ fun HistoryScreen(
     var selectedTopicFilter by remember { mutableStateOf("All") }
     var selectedStatusFilter by remember { mutableStateOf("All") }
 
-    val allHistory by db.historyDao().getAllHistory().collectAsState(initial = emptyList())
+    val allHistory by db.historyDao().getRecentlyViewedHistory(10).collectAsState(initial = emptyList())
 
     val filteredHistory = remember(allHistory, selectedTopicFilter, selectedStatusFilter) {
         allHistory.filter { item ->

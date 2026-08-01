@@ -32,7 +32,7 @@ class GeminiConceptGenerator(
         try {
             val configuredModel = prefsManager.getCustomModel().ifBlank { null }
             val requestBuilder = Request.Builder()
-            val response = if (apiKey.startsWith("sk-or-")) {
+            if (apiKey.startsWith("sk-or-")) {
                 // OpenRouter endpoint
                 val modelName = configuredModel ?: "google/gemini-2.5-flash"
                 val jsonPayload = JSONObject().apply {
@@ -50,8 +50,6 @@ class GeminiConceptGenerator(
                     .addHeader("Authorization", "Bearer $apiKey")
                     .addHeader("HTTP-Referer", "https://unlocklearn.app")
                     .addHeader("X-Title", "UnlockLearn")
-                    .build()
-                client.newCall(requestBuilder.build()).execute()
             } else if (apiKey.startsWith("sk-")) {
                 // OpenAI endpoint
                 val modelName = configuredModel ?: "gpt-4o-mini"
@@ -68,8 +66,6 @@ class GeminiConceptGenerator(
                 requestBuilder.url("https://api.openai.com/v1/chat/completions")
                     .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
                     .addHeader("Authorization", "Bearer $apiKey")
-                    .build()
-                client.newCall(requestBuilder.build()).execute()
             } else {
                 // Google Gemini endpoint
                 val modelName = configuredModel ?: "gemini-3.5-flash"
@@ -87,26 +83,26 @@ class GeminiConceptGenerator(
                 }
                 requestBuilder.url(url)
                     .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
-                    .build()
-                client.newCall(requestBuilder.build()).execute()
             }
 
-            val responseBody = response.body?.string()
-            if (!response.isSuccessful) {
-                val errDetail = try {
-                    val errJson = JSONObject(responseBody ?: "")
-                    errJson.optJSONObject("error")?.optString("message") ?: "HTTP ${response.code}"
-                } catch (e: Exception) {
-                    "HTTP ${response.code}: ${response.message}"
+            client.newCall(requestBuilder.build()).execute().use { response ->
+                val responseBody = response.body?.string()
+                if (!response.isSuccessful) {
+                    val errDetail = try {
+                        val errJson = JSONObject(responseBody ?: "")
+                        errJson.optJSONObject("error")?.optString("message") ?: "HTTP ${response.code}"
+                    } catch (e: Exception) {
+                        "HTTP ${response.code}: ${response.message}"
+                    }
+                    return@withContext Pair(false, "Connection failed: $errDetail")
                 }
-                return@withContext Pair(false, "Connection failed: $errDetail")
-            }
 
-            if (responseBody.isNullOrBlank()) {
-                return@withContext Pair(false, "Received empty response from provider.")
-            }
+                if (responseBody.isNullOrBlank()) {
+                    return@withContext Pair(false, "Received empty response from provider.")
+                }
 
-            return@withContext Pair(true, "API Key Verified & Connected Successfully!")
+                return@withContext Pair(true, "API Key Verified & Connected Successfully!")
+            }
         } catch (e: Exception) {
             return@withContext Pair(false, "Network error: ${e.message}")
         }
@@ -201,20 +197,21 @@ class GeminiConceptGenerator(
                     .addHeader("HTTP-Referer", "https://unlocklearn.app")
                     .addHeader("X-Title", "UnlockLearn")
                     
-                val response = client.newCall(requestBuilder.build()).execute()
-                val responseBody = response.body?.string()
+                client.newCall(requestBuilder.build()).execute().use { response ->
+                    val responseBody = response.body?.string()
 
-                if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                    Log.e("GeminiGenerator", "OpenRouter request failed code=${response.code}, body=$responseBody")
-                    return@withContext emptyList()
-                }
+                    if (!response.isSuccessful || responseBody.isNullOrBlank()) {
+                        Log.e("GeminiGenerator", "OpenRouter request failed code=${response.code}, body=$responseBody")
+                        return@withContext emptyList()
+                    }
 
-                val rootJson = JSONObject(responseBody)
-                val choices = rootJson.optJSONArray("choices")
-                if (choices == null || (choices.length() == 0)) {
-                    return@withContext emptyList()
+                    val rootJson = JSONObject(responseBody)
+                    val choices = rootJson.optJSONArray("choices")
+                    if (choices == null || (choices.length() == 0)) {
+                        return@withContext emptyList()
+                    }
+                    textResponse = choices.getJSONObject(0).optJSONObject("message")?.optString("content") ?: ""
                 }
-                textResponse = choices.getJSONObject(0).optJSONObject("message")?.optString("content") ?: ""
 
             } else if (apiKey.startsWith("sk-")) {
                 // OpenAI format
@@ -235,20 +232,21 @@ class GeminiConceptGenerator(
                     .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
                     .addHeader("Authorization", "Bearer $apiKey")
                     
-                val response = client.newCall(requestBuilder.build()).execute()
-                val responseBody = response.body?.string()
+                client.newCall(requestBuilder.build()).execute().use { response ->
+                    val responseBody = response.body?.string()
 
-                if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                    Log.e("GeminiGenerator", "OpenAI request failed code=${response.code}, body=$responseBody")
-                    return@withContext emptyList()
-                }
+                    if (!response.isSuccessful || responseBody.isNullOrBlank()) {
+                        Log.e("GeminiGenerator", "OpenAI request failed code=${response.code}, body=$responseBody")
+                        return@withContext emptyList()
+                    }
 
-                val rootJson = JSONObject(responseBody)
-                val choices = rootJson.optJSONArray("choices")
-                if (choices == null || (choices.length() == 0)) {
-                    return@withContext emptyList()
+                    val rootJson = JSONObject(responseBody)
+                    val choices = rootJson.optJSONArray("choices")
+                    if (choices == null || (choices.length() == 0)) {
+                        return@withContext emptyList()
+                    }
+                    textResponse = choices.getJSONObject(0).optJSONObject("message")?.optString("content") ?: ""
                 }
-                textResponse = choices.getJSONObject(0).optJSONObject("message")?.optString("content") ?: ""
 
             } else {
                 // Gemini format (default for non-sk keys)
@@ -274,23 +272,24 @@ class GeminiConceptGenerator(
                 requestBuilder.url(url)
                     .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
 
-                val response = client.newCall(requestBuilder.build()).execute()
-                val responseBody = response.body?.string()
+                client.newCall(requestBuilder.build()).execute().use { response ->
+                    val responseBody = response.body?.string()
 
-                if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                    Log.e("GeminiGenerator", "Gemini request failed code=${response.code}, body=$responseBody")
-                    return@withContext emptyList()
+                    if (!response.isSuccessful || responseBody.isNullOrBlank()) {
+                        Log.e("GeminiGenerator", "Gemini request failed code=${response.code}, body=$responseBody")
+                        return@withContext emptyList()
+                    }
+
+                    val rootJson = JSONObject(responseBody)
+                    val candidates = rootJson.optJSONArray("candidates")
+                    if (candidates == null || candidates.length() == 0) {
+                        return@withContext emptyList()
+                    }
+
+                    val content = candidates.getJSONObject(0).optJSONObject("content")
+                    val parts = content?.optJSONArray("parts")
+                    textResponse = parts?.getJSONObject(0)?.optString("text") ?: ""
                 }
-
-                val rootJson = JSONObject(responseBody)
-                val candidates = rootJson.optJSONArray("candidates")
-                if (candidates == null || candidates.length() == 0) {
-                    return@withContext emptyList()
-                }
-
-                val content = candidates.getJSONObject(0).optJSONObject("content")
-                val parts = content?.optJSONArray("parts")
-                textResponse = parts?.getJSONObject(0)?.optString("text") ?: ""
             }
 
             val jsonArray = sanitizeAndParseJsonArray(textResponse)

@@ -13,6 +13,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Code
@@ -75,16 +76,11 @@ fun UnlockQuizScreen(
 
     var isQuizStarted by remember { mutableStateOf(false) }
     var currentQuestionIndex by remember { mutableIntStateOf(0) }
-    
+
     // Track selected option indices and code answers per question index
     val selectedOptionIndices = remember { mutableStateMapOf<Int, Int>() }
     val codeAnswers = remember { mutableStateMapOf<Int, String>() }
 
-    var showResultDialog by remember { mutableStateOf(false) }
-    var totalScore by remember { mutableIntStateOf(0) }
-    var totalQuestionsCount by remember { mutableIntStateOf(1) }
-    var isPassed by remember { mutableStateOf(false) }
-    var resultBreakdownText by remember { mutableStateOf("") }
     var isStarred by remember { mutableStateOf(false) }
 
     val currentTime = remember {
@@ -92,28 +88,71 @@ fun UnlockQuizScreen(
     }
 
     LaunchedEffect(Unit) {
-        val retryItem = db.historyDao().getPendingRetryQuestion()
-        if (retryItem != null) {
-            pendingRetryItem = retryItem
-            isStarred = retryItem.isStarred
-            val originalConcept = db.conceptDao().getConceptByTitle(retryItem.conceptTitle)
-            if (originalConcept != null) {
-                currentConcept = originalConcept
-            }
-        } else {
-            val selectedTopics = prefsManager.getSelectedTopics().toList()
-            val concept = if (selectedTopics.isEmpty()) {
-                db.conceptDao().getNextUnusedConcept()
+        try {
+            val retryItem = db.historyDao().getPendingRetryQuestion()
+            if (retryItem != null) {
+                pendingRetryItem = retryItem
+                isStarred = retryItem.isStarred
+                val originalConcept = db.conceptDao().getConceptByTitle(retryItem.conceptTitle)
+                if (originalConcept != null) {
+                    currentConcept = originalConcept
+                }
             } else {
-                db.conceptDao().getNextUnusedConceptForTopics(selectedTopics)
-            } ?: db.conceptDao().getNextUnusedConcept()
+                val selectedTopics = prefsManager.getSelectedTopics().toList()
+                val cooldown24h = System.currentTimeMillis() - (24 * 60 * 60 * 1000)
+                val recentTitles = db.historyDao().getRecentConceptTitles(cooldown24h)
+                val targetCount = prefsManager.getQuestionsPerQuiz()
 
-            currentConcept = concept
-            if (concept != null) {
-                isStarred = concept.isStarred
+                var concept = if (selectedTopics.isEmpty()) {
+                    db.conceptDao().getNextUnusedConceptExcludingRecent(recentTitles)
+                } else {
+                    db.conceptDao().getNextUnusedConceptForTopicsExcludingRecent(selectedTopics, recentTitles)
+                } ?: if (selectedTopics.isEmpty()) {
+                    db.conceptDao().getNextUnusedConcept()
+                } else {
+                    db.conceptDao().getNextUnusedConceptForTopics(selectedTopics)
+                }
+
+                // Verify fetched concept matches current user question count preference
+                if (concept != null) {
+                    val parsedQuestions = parseQuestionsList(
+                        questionsJson = concept.questionsJson,
+                        fallbackQuestionText = concept.questionText,
+                        fallbackQuestionType = concept.questionType,
+                        fallbackOptionsJson = concept.optionsJson,
+                        fallbackCodePrefix = concept.codeSnippetPrefix,
+                        fallbackCorrectAnswer = concept.correctAnswer,
+                        fallbackExplanation = concept.explanation
+                    )
+                    if (parsedQuestions.size != targetCount) {
+                        db.conceptDao().markConceptUsed(concept.id)
+                        concept = null
+                    }
+                }
+
+                // If no pre-generated concept matches, generate a fresh AI concept
+                if (concept == null && prefsManager.getApiKey().isNotBlank()) {
+                    val generator = com.example.service.GeminiConceptGenerator(prefsManager)
+                    val fresh = generator.generateBatchConcepts(
+                        topics = prefsManager.getSelectedTopics(),
+                        count = 1
+                    )
+                    if (fresh.isNotEmpty()) {
+                        val newId = db.conceptDao().insertConcept(fresh.first())
+                        concept = fresh.first().copy(id = newId)
+                    }
+                }
+
+                currentConcept = concept
+                if (concept != null) {
+                    isStarred = concept.isStarred
+                }
             }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        } finally {
+            isLoading = false
         }
-        isLoading = false
         UnlockReceiver.pregenerateConceptsIfNeeded(context, prefsManager)
     }
 
@@ -191,19 +230,26 @@ fun UnlockQuizScreen(
             }
         } else {
             val topic = pendingRetryItem?.topic ?: currentConcept?.topic ?: "General CS"
-            val summary = currentConcept?.conceptSummary ?: "Master this fundamental software engineering concept to complete your unlock."
+            val summary = currentConcept?.conceptSummary
+                ?: "Master this fundamental software engineering concept to complete your unlock."
             val codeExample = currentConcept?.codeExample
 
             val rawQuestionsJson = pendingRetryItem?.questionsJson ?: currentConcept?.questionsJson
             val questionsList = remember(pendingRetryItem, currentConcept) {
                 parseQuestionsList(
                     questionsJson = rawQuestionsJson,
-                    fallbackQuestionText = pendingRetryItem?.questionText ?: currentConcept?.questionText ?: "Answer the question to proceed.",
-                    fallbackQuestionType = pendingRetryItem?.questionType ?: currentConcept?.questionType ?: "MCQ",
-                    fallbackOptionsJson = pendingRetryItem?.optionsJson ?: currentConcept?.optionsJson,
-                    fallbackCodePrefix = pendingRetryItem?.codeSnippetPrefix ?: currentConcept?.codeSnippetPrefix,
-                    fallbackCorrectAnswer = pendingRetryItem?.correctAnswer ?: currentConcept?.correctAnswer ?: "0",
-                    fallbackExplanation = pendingRetryItem?.explanation ?: currentConcept?.explanation ?: "Correct answer verified!"
+                    fallbackQuestionText = pendingRetryItem?.questionText
+                        ?: currentConcept?.questionText ?: "Answer the question to proceed.",
+                    fallbackQuestionType = pendingRetryItem?.questionType
+                        ?: currentConcept?.questionType ?: "MCQ",
+                    fallbackOptionsJson = pendingRetryItem?.optionsJson
+                        ?: currentConcept?.optionsJson,
+                    fallbackCodePrefix = pendingRetryItem?.codeSnippetPrefix
+                        ?: currentConcept?.codeSnippetPrefix,
+                    fallbackCorrectAnswer = pendingRetryItem?.correctAnswer
+                        ?: currentConcept?.correctAnswer ?: "0",
+                    fallbackExplanation = pendingRetryItem?.explanation
+                        ?: currentConcept?.explanation ?: "Correct answer verified!"
                 )
             }
 
@@ -312,60 +358,46 @@ fun UnlockQuizScreen(
                                 letterSpacing = 1.2.sp
                             )
                         }
-
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = DarkSurface
-                        ) {
-                            Text(
-                                text = "AI TUTOR CONCEPT",
-                                color = TextMuted,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    Text(
-                        text = title,
-                        color = TextPrimary,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        lineHeight = 32.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    MarkdownView(markdownText = summary)
-
-                    if (codeExample.isValidSnippet()) {
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = DarkSurface,
-                            border = CardDefaults.outlinedCardBorder().copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(
-                                text = codeExample!!.replace("\\n", "\n"),
-                                color = CodeBlue,
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 14.sp,
-                                lineHeight = 20.sp,
-                                modifier = Modifier.padding(14.dp)
-                            )
-                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = title,
+                    color = TextPrimary,
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Bold,
+                    lineHeight = 32.sp
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                MarkdownView(markdownText = summary)
+
+                if (codeExample.isValidSnippet()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = DarkSurface,
+                        border = CardDefaults.outlinedCardBorder().copy(
+                            brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = codeExample!!.replace("\\n", "\n"),
+                            color = CodeBlue,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            modifier = Modifier.padding(14.dp)
+                        )
+                    }
+                }
 
                 if (!isQuizStarted) {
+                    Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { isQuizStarted = true },
                         shape = CircleShape,
@@ -378,479 +410,478 @@ fun UnlockQuizScreen(
                             .height(56.dp)
                     ) {
                         Text(
-                            text = "START QUIZ (${questionsList.size} QUESTIONS)",
+                            text = "START QUIZ",
                             fontSize = 15.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.sp
                         )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(imageVector = Icons.AutoMirrored.Filled.NavigateNext, contentDescription = null)
                     }
+                    Spacer(modifier = Modifier.height(24.dp))
                 } else {
+                    Spacer(modifier = Modifier.height(16.dp))
                     val currentQ = questionsList[currentQuestionIndex]
                     val qIndex = currentQuestionIndex
                     val selectedIdx = selectedOptionIndices[qIndex] ?: -1
                     val currentCodeInput = codeAnswers[qIndex] ?: ""
                     val isTextInputQuestion = false
 
-                    // Progress bar & Question Step Badge
-                    Card(
-                        shape = RoundedCornerShape(24.dp),
-                        colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
-                        border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                // Progress bar & Question Step Badge
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
+                    border = CardDefaults.outlinedCardBorder()
+                        .copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = ElegantPrimary.copy(alpha = 0.15f)
                             ) {
-                                Surface(
-                                    shape = RoundedCornerShape(8.dp),
-                                    color = ElegantPrimary.copy(alpha = 0.15f)
-                                ) {
-                                    Text(
-                                        text = "QUESTION ${qIndex + 1} OF ${questionsList.size}",
-                                        color = ElegantPrimary,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 1.sp,
-                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                    )
-                                }
-
                                 Text(
-                                    text = "${qIndex + 1}/${questionsList.size}",
-                                    color = TextMuted,
-                                    fontSize = 12.sp,
+                                    text = "QUESTION ${qIndex + 1} OF ${questionsList.size}",
+                                    color = ElegantPrimary,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+
+                            Text(
+                                text = "${qIndex + 1}/${questionsList.size}",
+                                color = TextMuted,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        LinearProgressIndicator(
+                            progress = { (qIndex + 1).toFloat() / questionsList.size },
+                            color = ElegantPrimary,
+                            trackColor = DarkBackground,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(CircleShape)
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Question Text
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(CircleShape)
+                                    .background(ElegantPrimary),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "0${qIndex + 1}",
+                                    color = ElegantOnPrimary,
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            LinearProgressIndicator(
-                                progress = { (qIndex + 1).toFloat() / questionsList.size },
-                                color = ElegantPrimary,
-                                trackColor = DarkBackground,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(CircleShape)
-                            )
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            // Question Text
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(26.dp)
-                                        .clip(CircleShape)
-                                        .background(ElegantPrimary),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Text(
-                                        text = "0${qIndex + 1}",
-                                        color = ElegantOnPrimary,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                Text(
-                                    text = currentQ.questionText,
-                                    color = TextPrimary,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-
-                            // Render choices (CODE / FILL_BLANK vs MCQ / TRUE_FALSE)
-                            if (isTextInputQuestion) {
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = DarkBackground,
-                            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp)) {
-                                Text(
-                                    text = if (currentQ.questionType == "CODE") "-- Fill in code answer" else "-- Type your answer",
-                                    color = TextMuted,
-                                    fontSize = 11.sp,
-                                    fontFamily = FontFamily.Monospace
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                if (currentQ.codeSnippetPrefix.isValidSnippet()) {
-                                    Text(
-                                        text = currentQ.codeSnippetPrefix!!.replace("\\n", "\n"),
-                                        color = CodeBlue,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 14.sp
-                                    )
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                }
-                                OutlinedTextField(
-                                    value = currentCodeInput,
-                                    onValueChange = { codeAnswers[qIndex] = it },
-                                    placeholder = { Text("type answer here...", color = TextMuted, fontSize = 13.sp) },
-                                    textStyle = LocalTextStyle.current.copy(
-                                        color = TextPrimary,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 14.sp
-                                    ),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = ElegantPrimary,
-                                        unfocusedBorderColor = DarkBorder,
-                                        focusedContainerColor = DarkSurface,
-                                        unfocusedContainerColor = DarkSurface
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                        }
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            if (currentQ.codeSnippetPrefix.isValidSnippet()) {
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = DarkBackground,
-                                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text(
-                                        text = currentQ.codeSnippetPrefix!!.replace("\\n", "\n"),
-                                        color = CodeBlue,
-                                        fontFamily = FontFamily.Monospace,
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp,
-                                        modifier = Modifier.padding(12.dp)
-                                    )
-                                }
-                            }
-                            currentQ.optionsList.forEachIndexed { index, optionText ->
-                                val isSelected = selectedIdx == index
-                                val borderColor = if (isSelected) ElegantPrimary else DarkBorder
-                                val bgColor = if (isSelected) ElegantPrimaryContainer.copy(alpha = 0.3f) else DarkSurface
-
-                                Surface(
-                                    shape = RoundedCornerShape(14.dp),
-                                    color = bgColor,
-                                    border = CardDefaults.outlinedCardBorder().copy(
-                                        brush = androidx.compose.ui.graphics.SolidColor(borderColor)
-                                    ),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(14.dp))
-                                        .clickable { selectedOptionIndices[qIndex] = index }
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(20.dp)
-                                                .border(2.dp, borderColor, CircleShape)
-                                                .background(if (isSelected) ElegantPrimary else androidx.compose.ui.graphics.Color.Transparent, CircleShape)
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Text(
-                                            text = optionText,
-                                            color = if (isSelected) TextPrimary else TextSecondary,
-                                            fontSize = 14.sp
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            val isCurrentAnswered = if (isTextInputQuestion) {
-                currentCodeInput.isNotBlank()
-            } else {
-                selectedIdx != -1
-            }
-
-                    if (qIndex < questionsList.size - 1) {
-                        Button(
-                            onClick = { currentQuestionIndex++ },
-                            enabled = isCurrentAnswered,
-                            shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ElegantPrimary,
-                                contentColor = ElegantOnPrimary
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                        ) {
                             Text(
-                                text = "NEXT QUESTION (${qIndex + 1}/${questionsList.size})",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(imageVector = Icons.AutoMirrored.Filled.NavigateNext, contentDescription = null)
-                        }
-                    } else {
-                        // Submit All Quiz Questions
-                        Button(
-                            onClick = {
-                                var correctCount = 0
-                                val breakdownBuilder = StringBuilder()
-
-                                questionsList.forEachIndexed { i, q ->
-                                    val userSelIdx = selectedOptionIndices[i] ?: -1
-                                    val userCode = codeAnswers[i] ?: ""
-                                    val isTextQ = q.questionType == "CODE" || q.questionType.contains("FILL", ignoreCase = true) || q.optionsList.isEmpty()
-                                    
-                                    val isQCorrect = if (isTextQ) {
-                                        userCode.trim().equals(q.correctAnswer.trim(), ignoreCase = true)
-                                    } else {
-                                        val letter = when (userSelIdx) {
-                                            0 -> "A"; 1 -> "B"; 2 -> "C"; 3 -> "D"; else -> ""
-                                        }
-                                        letter.equals(q.correctAnswer.trim(), ignoreCase = true) ||
-                                                userSelIdx.toString() == q.correctAnswer.trim()
-                                    }
-
-                                    if (isQCorrect) correctCount++
-
-                                    val savedUserAns = if (isTextQ) userCode.trim() else q.optionsList.getOrNull(userSelIdx) ?: userSelIdx.toString()
-                                    breakdownBuilder.append("Q${i + 1}: ${if (isQCorrect) "✅ Correct" else "❌ Wrong"}\n")
-                                    breakdownBuilder.append("   Your: $savedUserAns\n")
-                                    if (!isQCorrect) {
-                                        breakdownBuilder.append("   Explanation: ${q.explanation}\n")
-                                    }
-                                    breakdownBuilder.append("\n")
-                                }
-
-                                totalScore = correctCount
-                                totalQuestionsCount = questionsList.size
-                                val passed = if (questionsList.size > 1) correctCount >= 2 else correctCount >= 1
-                                isPassed = passed
-                                resultBreakdownText = breakdownBuilder.toString().trim()
-                                showResultDialog = true
-
-                                coroutineScope.launch {
-                                    val userAnswersList = mutableListOf<String>()
-                                    questionsList.forEachIndexed { i, q ->
-                                        val selIdx = selectedOptionIndices[i] ?: -1
-                                        val code = codeAnswers[i] ?: ""
-                                        val isTextQ = q.questionType == "CODE" || q.questionType.contains("FILL", ignoreCase = true) || q.optionsList.isEmpty()
-                                        val ans = if (isTextQ) code.trim() else q.optionsList.getOrNull(selIdx) ?: if (selIdx != -1) selIdx.toString() else "Unanswered"
-                                        userAnswersList.add(ans)
-                                    }
-
-                                    val formattedUserAnswer = if (userAnswersList.size == 1) {
-                                        userAnswersList.first()
-                                    } else {
-                                        userAnswersList.mapIndexed { idx, a -> "Q${idx + 1}: $a" }.joinToString(" | ")
-                                    }
-
-                                    val firstQ = questionsList.first()
-                                    val newStatus = if (passed) "PASSED" else "RETRY_PENDING"
-
-                                    // Always insert a new QuestionHistory entry so recent attempts show at top of History
-                                    db.historyDao().insertHistory(
-                                        QuestionHistory(
-                                            id = 0,
-                                            conceptTitle = title,
-                                            topic = topic,
-                                            questionText = if (questionsList.size > 1) "${questionsList.size}-Question Quiz ($correctCount/${questionsList.size} Correct)" else firstQ.questionText,
-                                            userAnswer = formattedUserAnswer,
-                                            correctAnswer = firstQ.correctAnswer,
-                                            isCorrect = passed,
-                                            status = newStatus,
-                                            explanation = firstQ.explanation,
-                                            optionsJson = JSONArray(firstQ.optionsList).toString(),
-                                            questionType = firstQ.questionType,
-                                            codeSnippetPrefix = firstQ.codeSnippetPrefix,
-                                            questionsJson = rawQuestionsJson,
-                                            conceptSummary = summary,
-                                            isStarred = isStarred,
-                                            answeredAt = System.currentTimeMillis()
-                                        )
-                                    )
-
-                                    val currentItem = pendingRetryItem
-                                    if (currentItem != null) {
-                                        if (passed) {
-                                            db.historyDao().markConceptPassed(currentItem.conceptTitle)
-                                        } else {
-                                            db.historyDao().updateHistory(currentItem.copy(status = "RETRY_RESOLVED"))
-                                        }
-                                    }
-
-                                    val concept = currentConcept
-                                    if (concept != null) {
-                                        db.conceptDao().markConceptUsed(concept.id)
-                                    }
-                                    if (passed) {
-                                        db.historyDao().markConceptPassed(title)
-                                    }
-                                }
-                            },
-                            enabled = isCurrentAnswered,
-                            shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ElegantPrimary,
-                                contentColor = ElegantOnPrimary
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(56.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = "Submit",
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "SUBMIT QUIZ & UNLOCK",
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(24.dp))
-                }
-            }
-
-            // Answer Result Dialog (Popup)
-            if (showResultDialog) {
-                AlertDialog(
-                    onDismissRequest = { /* Modal forces choice */ },
-                    containerColor = DarkSurface,
-                    shape = RoundedCornerShape(28.dp),
-                    title = {
-                        Surface(
-                            color = if (isPassed) SuccessGreen.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isPassed) Icons.Default.CheckCircle else Icons.Default.Warning,
-                                        contentDescription = null,
-                                        tint = if (isPassed) SuccessGreen else ErrorRed
-                                    )
-                                    Text(
-                                        text = if (isPassed) "Quiz Passed ($totalScore/$totalQuestionsCount)" else "Quiz Failed ($totalScore/$totalQuestionsCount)",
-                                        color = if (isPassed) SuccessGreen else ErrorRed,
-                                        fontSize = 18.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = {
-                                        isStarred = !isStarred
-                                        val conceptTitle = pendingRetryItem?.conceptTitle ?: currentConcept?.conceptTitle ?: "CS Concept"
-                                        coroutineScope.launch {
-                                            db.conceptDao().updateStarStatusByTitle(conceptTitle, isStarred)
-                                            db.historyDao().updateStarStatusByTitle(conceptTitle, isStarred)
-                                        }
-                                    },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (isStarred) Icons.Default.Star else Icons.Outlined.StarBorder,
-                                        contentDescription = "Star Concept",
-                                        tint = if (isStarred) GoldStar else TextMuted
-                                    )
-                                }
-                            }
-                        }
-                    },
-                    text = {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = if (isPassed) "Great job! You answered $totalScore out of $totalQuestionsCount correctly and unlocked your phone." else "You scored $totalScore out of $totalQuestionsCount. Retry now or practice again later?",
+                                text = currentQ.questionText,
                                 color = TextPrimary,
                                 fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.weight(1f)
                             )
-                            Spacer(modifier = Modifier.height(4.dp))
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Render choices (CODE / FILL_BLANK vs MCQ / TRUE_FALSE)
+                        if (isTextInputQuestion) {
                             Surface(
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(16.dp),
                                 color = DarkBackground,
+                                border = CardDefaults.outlinedCardBorder()
+                                    .copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Text(
-                                    text = resultBreakdownText,
-                                    color = TextSecondary,
-                                    fontSize = 12.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    lineHeight = 18.sp,
-                                    modifier = Modifier.padding(10.dp)
-                                )
-                            }
-                        }
-                    },
-                    confirmButton = {
-                        if (isPassed) {
-                            Button(
-                                onClick = onDismiss,
-                                shape = CircleShape,
-                                colors = ButtonDefaults.buttonColors(containerColor = ElegantPrimary)
-                            ) {
-                                Text("Dismiss & Return to Phone", color = ElegantOnPrimary, fontWeight = FontWeight.Bold)
+                                Column(modifier = Modifier.padding(14.dp)) {
+                                    Text(
+                                        text = if (currentQ.questionType == "CODE") "-- Fill in code answer" else "-- Type your answer",
+                                        color = TextMuted,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    if (currentQ.codeSnippetPrefix.isValidSnippet()) {
+                                        Text(
+                                            text = currentQ.codeSnippetPrefix!!.replace(
+                                                "\\n",
+                                                "\n"
+                                            ),
+                                            color = CodeBlue,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 14.sp
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                    }
+                                    OutlinedTextField(
+                                        value = currentCodeInput,
+                                        onValueChange = { codeAnswers[qIndex] = it },
+                                        placeholder = {
+                                            Text(
+                                                "type answer here...",
+                                                color = TextMuted,
+                                                fontSize = 13.sp
+                                            )
+                                        },
+                                        textStyle = LocalTextStyle.current.copy(
+                                            color = TextPrimary,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 14.sp
+                                        ),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = ElegantPrimary,
+                                            unfocusedBorderColor = DarkBorder,
+                                            focusedContainerColor = DarkSurface,
+                                            unfocusedContainerColor = DarkSurface
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                             }
                         } else {
-                            Button(
-                                onClick = {
-                                    currentQuestionIndex = 0
-                                    selectedOptionIndices.clear()
-                                    codeAnswers.clear()
-                                    showResultDialog = false
-                                },
-                                shape = CircleShape,
-                                colors = ButtonDefaults.buttonColors(containerColor = ElegantPrimary)
-                            ) {
-                                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Retry Quiz Now", color = ElegantOnPrimary, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    },
-                    dismissButton = {
-                        if (!isPassed) {
-                            OutlinedButton(
-                                onClick = onDismiss,
-                                shape = CircleShape,
-                                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder))
-                            ) {
-                                Icon(Icons.Default.Schedule, contentDescription = null, tint = TextPrimary, modifier = Modifier.size(16.dp))
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text("Try Later", color = TextPrimary, fontWeight = FontWeight.Bold)
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                if (currentQ.codeSnippetPrefix.isValidSnippet()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = DarkBackground,
+                                        border = CardDefaults.outlinedCardBorder().copy(
+                                            brush = androidx.compose.ui.graphics.SolidColor(
+                                                DarkBorder
+                                            )
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Text(
+                                            text = currentQ.codeSnippetPrefix!!.replace(
+                                                "\\n",
+                                                "\n"
+                                            ),
+                                            color = CodeBlue,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 13.sp,
+                                            lineHeight = 18.sp,
+                                            modifier = Modifier.padding(12.dp)
+                                        )
+                                    }
+                                }
+                                val correctOptIdx = getCorrectOptionIndex(currentQ)
+                                val isAnswered = selectedIdx != -1
+
+                                currentQ.optionsList.forEachIndexed { index, optionText ->
+                                    val isSelected = selectedIdx == index
+                                    val isCorrect = index == correctOptIdx
+
+                                    val (borderColor, bgColor, iconTint) = when {
+                                        !isAnswered -> {
+                                            if (isSelected) Triple(
+                                                ElegantPrimary,
+                                                ElegantPrimaryContainer.copy(alpha = 0.3f),
+                                                ElegantPrimary
+                                            )
+                                            else Triple(DarkBorder, DarkSurface, DarkBorder)
+                                        }
+
+                                        isCorrect -> {
+                                            Triple(
+                                                SuccessGreen,
+                                                SuccessGreen.copy(alpha = 0.18f),
+                                                SuccessGreen
+                                            )
+                                        }
+
+                                        isSelected && !isCorrect -> {
+                                            Triple(ErrorRed, ErrorRed.copy(alpha = 0.18f), ErrorRed)
+                                        }
+
+                                        else -> {
+                                            Triple(
+                                                DarkBorder,
+                                                DarkSurface.copy(alpha = 0.4f),
+                                                DarkBorder
+                                            )
+                                        }
+                                    }
+
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = bgColor,
+                                        border = CardDefaults.outlinedCardBorder().copy(
+                                            brush = androidx.compose.ui.graphics.SolidColor(
+                                                borderColor
+                                            )
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(14.dp))
+                                            .clickable { selectedOptionIndices[qIndex] = index }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(
+                                                horizontal = 16.dp,
+                                                vertical = 14.dp
+                                            ),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(22.dp)
+                                                    .border(2.dp, borderColor, CircleShape)
+                                                    .background(
+                                                        if (isAnswered && (isCorrect || isSelected)) iconTint else androidx.compose.ui.graphics.Color.Transparent,
+                                                        CircleShape
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                if (isAnswered && isCorrect) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Correct",
+                                                        tint = DarkBackground,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                } else if (isAnswered && isSelected && !isCorrect) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Incorrect",
+                                                        tint = TextPrimary,
+                                                        modifier = Modifier.size(14.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text(
+                                                text = optionText,
+                                                color = if (isAnswered && (isCorrect || isSelected)) TextPrimary else TextSecondary,
+                                                fontSize = 14.sp,
+                                                fontWeight = if (isAnswered && (isCorrect || isSelected)) FontWeight.Bold else FontWeight.Normal,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            if (isAnswered && isCorrect) {
+                                                Text(
+                                                    text = "Correct ✓",
+                                                    color = SuccessGreen,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            } else if (isAnswered && isSelected && !isCorrect) {
+                                                Text(
+                                                    text = "Incorrect ✕",
+                                                    color = ErrorRed,
+                                                    fontSize = 12.sp,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Inline Explanation Box when answered
+                                if (isAnswered && currentQ.explanation.isNotBlank()) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = DarkSurface,
+                                        border = CardDefaults.outlinedCardBorder().copy(
+                                            brush = androidx.compose.ui.graphics.SolidColor(
+                                                if (selectedIdx == correctOptIdx) SuccessGreen else ElegantPrimary
+                                            )
+                                        ),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(14.dp)) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.AutoAwesome,
+                                                    contentDescription = null,
+                                                    tint = if (selectedIdx == correctOptIdx) SuccessGreen else ElegantPrimary,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Text(
+                                                    text = if (selectedIdx == correctOptIdx) "EXPLANATION (CORRECT!)" else "EXPLANATION",
+                                                    color = if (selectedIdx == correctOptIdx) SuccessGreen else ElegantPrimary,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    letterSpacing = 1.sp
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = currentQ.explanation.replace("\\n", "\n"),
+                                                color = TextPrimary,
+                                                fontSize = 13.sp,
+                                                lineHeight = 19.sp
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
-                )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                val isCurrentAnswered = if (isTextInputQuestion) {
+                    currentCodeInput.isNotBlank()
+                } else {
+                    selectedIdx != -1
+                }
+
+                if (qIndex < questionsList.size - 1) {
+                    Button(
+                        onClick = { currentQuestionIndex++ },
+                        enabled = isCurrentAnswered,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ElegantPrimary,
+                            contentColor = ElegantOnPrimary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                    ) {
+                        Text(
+                            text = "NEXT QUESTION (${qIndex + 1}/${questionsList.size})",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.NavigateNext,
+                            contentDescription = null
+                        )
+                    }
+                } else {
+                    // Submit All Quiz Questions
+                    Button(
+                        onClick = {
+                            coroutineScope.launch {
+                                var correctCount = 0
+                                questionsList.forEachIndexed { i, q ->
+                                    val userSelIdx = selectedOptionIndices[i] ?: -1
+                                    val correctOptIdx = getCorrectOptionIndex(q)
+                                    if (userSelIdx == correctOptIdx) correctCount++
+                                }
+
+                                val passed =
+                                    if (questionsList.size > 1) correctCount >= (questionsList.size / 2 + 1) else correctCount >= 1
+
+                                val userAnswersList = mutableListOf<String>()
+                                questionsList.forEachIndexed { i, q ->
+                                    val selIdx = selectedOptionIndices[i] ?: -1
+                                    val ans = q.optionsList.getOrNull(selIdx)
+                                        ?: if (selIdx != -1) selIdx.toString() else "Unanswered"
+                                    userAnswersList.add(ans)
+                                }
+
+                                val formattedUserAnswer = if (userAnswersList.size == 1) {
+                                    userAnswersList.first()
+                                } else {
+                                    userAnswersList.mapIndexed { idx, a -> "Q${idx + 1}: $a" }
+                                        .joinToString(" | ")
+                                }
+
+                                val firstQ = questionsList.first()
+                                val newStatus = if (passed) "PASSED" else "RETRY_PENDING"
+
+                                // Insert QuestionHistory entry (RETRY_PENDING if failed so user can re-practice in History)
+                                db.historyDao().insertHistory(
+                                    QuestionHistory(
+                                        id = 0,
+                                        conceptTitle = title,
+                                        topic = topic,
+                                        questionText = if (questionsList.size > 1) "${questionsList.size}-Question Quiz ($correctCount/${questionsList.size} Correct)" else firstQ.questionText,
+                                        userAnswer = formattedUserAnswer,
+                                        correctAnswer = firstQ.correctAnswer,
+                                        isCorrect = passed,
+                                        status = newStatus,
+                                        explanation = firstQ.explanation,
+                                        optionsJson = JSONArray(firstQ.optionsList).toString(),
+                                        questionType = firstQ.questionType,
+                                        codeSnippetPrefix = firstQ.codeSnippetPrefix,
+                                        questionsJson = rawQuestionsJson,
+                                        conceptSummary = summary,
+                                        isStarred = isStarred,
+                                        answeredAt = System.currentTimeMillis()
+                                    )
+                                )
+
+                                val currentItem = pendingRetryItem
+                                if (currentItem != null) {
+                                    if (passed) {
+                                        db.historyDao().markConceptPassed(currentItem.conceptTitle)
+                                    } else {
+                                        db.historyDao()
+                                            .updateHistory(currentItem.copy(status = "RETRY_RESOLVED"))
+                                    }
+                                }
+
+                                val concept = currentConcept
+                                if (concept != null) {
+                                    db.conceptDao().markConceptUsed(concept.id)
+                                }
+                                if (passed) {
+                                    db.historyDao().markConceptPassed(title)
+                                }
+
+                                // Immediately unlock phone and close screen regardless of pass/fail
+                                onDismiss()
+                            }
+                        },
+                        enabled = isCurrentAnswered,
+                        shape = CircleShape,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ElegantPrimary,
+                            contentColor = ElegantOnPrimary
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = "Submit",
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "SUBMIT QUIZ & UNLOCK",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.sp
+                        )
+                    }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
             }
         }
     }
@@ -860,6 +891,23 @@ fun String?.isValidSnippet(): Boolean {
     if (this == null) return false
     val trimmed = this.trim()
     return trimmed.isNotEmpty() && !trimmed.equals("null", ignoreCase = true)
+}
+
+fun getCorrectOptionIndex(q: QuizQuestion): Int {
+    val cAns = q.correctAnswer.trim()
+    val idxAsInt = cAns.toIntOrNull()
+    if (idxAsInt != null && idxAsInt in 0 until q.optionsList.size) {
+        return idxAsInt
+    }
+    val letterIdx = when (cAns.uppercase()) {
+        "A" -> 0; "B" -> 1; "C" -> 2; "D" -> 3; else -> -1
+    }
+    if (letterIdx != -1 && letterIdx < q.optionsList.size) {
+        return letterIdx
+    }
+    val textMatchIdx = q.optionsList.indexOfFirst { it.trim().equals(cAns, ignoreCase = true) }
+    if (textMatchIdx != -1) return textMatchIdx
+    return 0
 }
 
 fun parseQuestionsList(
@@ -888,16 +936,8 @@ fun parseQuestionsList(
                     }
                 }
 
-                if (opts.size < 2) {
-                    if (qType == "TRUE_FALSE") {
-                        opts.clear()
-                        opts.addAll(listOf("True", "False"))
-                    } else {
-                        qType = "MCQ"
-                        opts.clear()
-                        val answerStr = obj.optString("correctAnswer", "").trim()
-                        opts.addAll(buildSmartOptions(qText, answerStr))
-                    }
+                if (opts.isEmpty() && qType == "TRUE_FALSE") {
+                    opts.addAll(listOf("True", "False"))
                 }
                 val rawCodePref = if (obj.isNull("codeSnippetPrefix")) null else obj.getString("codeSnippetPrefix")
                 val codePref = rawCodePref?.takeIf { it.isValidSnippet() }
@@ -915,7 +955,7 @@ fun parseQuestionsList(
         QuizQuestion(
             questionText = fallbackQuestionText,
             questionType = fallbackQuestionType,
-            optionsList = parseOptionsJson(fallbackOptionsJson, fallbackQuestionText, fallbackCorrectAnswer),
+            optionsList = parseOptionsJson(fallbackOptionsJson),
             codeSnippetPrefix = cleanFallbackPrefix,
             correctAnswer = fallbackCorrectAnswer,
             explanation = fallbackExplanation
@@ -923,52 +963,17 @@ fun parseQuestionsList(
     )
 }
 
-private fun parseOptionsJson(jsonStr: String?, qText: String = "", cAns: String = ""): List<String> {
-    if (jsonStr.isNullOrBlank()) {
-        return buildSmartOptions(qText, cAns)
-    }
+private fun parseOptionsJson(jsonStr: String?): List<String> {
+    if (jsonStr.isNullOrBlank()) return emptyList()
     return try {
         val array = JSONArray(jsonStr)
         val list = mutableListOf<String>()
         for (i in 0 until array.length()) {
             list.add(array.getString(i))
         }
-        if (list.size >= 2) list else buildSmartOptions(qText, cAns)
+        list
     } catch (_: Exception) {
-        buildSmartOptions(qText, cAns)
+        emptyList()
     }
-}
-
-private fun buildSmartOptions(qText: String, correctAnswerStr: String): List<String> {
-    val trimmedAnswer = correctAnswerStr.trim()
-    val isAnswerText = trimmedAnswer.isNotBlank() && trimmedAnswer.toIntOrNull() == null
-    
-    val firstOption = if (isAnswerText) trimmedAnswer else "Correct statement/result based on summary"
-    val lowerQ = qText.lowercase()
-
-    val distractors = when {
-        lowerQ.contains("join") || lowerQ.contains("select") || lowerQ.contains("sql") || lowerQ.contains("table") -> listOf(
-            "All rows from left table regardless of matches in right table.",
-            "All rows from right table regardless of matches in left table.",
-            "Cartesian product of both tables without matching conditions."
-        )
-        lowerQ.contains("exception") || lowerQ.contains("error") || lowerQ.contains("try") || lowerQ.contains("catch") -> listOf(
-            "Forces immediate JVM shutdown without stack trace.",
-            "Suppresses all runtime errors automatically.",
-            "Bypasses exception handling blocks."
-        )
-        lowerQ.contains("memory") || lowerQ.contains("stack") || lowerQ.contains("heap") -> listOf(
-            "Allocated exclusively on thread-local stack memory.",
-            "Stored permanently in CPU registers.",
-            "Cached temporarily in disk swap space."
-        )
-        else -> listOf(
-            "Applies to all unindexed records.",
-            "None of the above statements are correct.",
-            "Requires explicit manual memory deallocation."
-        )
-    }
-
-    return listOf(firstOption, distractors[0], distractors[1], distractors[2])
 }
 

@@ -47,6 +47,9 @@ interface HistoryDao {
     @Query("SELECT * FROM question_history ORDER BY answeredAt DESC")
     suspend fun getAllHistoryList(): List<QuestionHistory>
 
+    @Query("SELECT DISTINCT conceptTitle FROM question_history WHERE answeredAt > :sinceTime")
+    suspend fun getRecentConceptTitles(sinceTime: Long): List<String>
+
     @Delete
     suspend fun deleteHistory(history: QuestionHistory)
 

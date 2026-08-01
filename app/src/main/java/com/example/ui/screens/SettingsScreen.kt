@@ -546,6 +546,11 @@ fun SettingsScreen(
                         val count = newValue.toInt().coerceIn(1, 5)
                         questionsCountInput = count
                         prefsManager.setQuestionsPerQuiz(count)
+                        coroutineScope.launch {
+                            try {
+                                com.example.data.AppDatabase.getDatabase(context).conceptDao().clearUnusedConcepts()
+                            } catch (_: Exception) {}
+                        }
                     },
                     valueRange = 1f..5f,
                     steps = 3,
@@ -584,6 +589,11 @@ fun SettingsScreen(
                                 .clickable {
                                     difficultyInput = level
                                     prefsManager.setDifficultyLevel(level)
+                                    coroutineScope.launch {
+                                        try {
+                                            com.example.data.AppDatabase.getDatabase(context).conceptDao().clearUnusedConcepts()
+                                        } catch (_: Exception) {}
+                                    }
                                 }
                         ) {
                             Box(

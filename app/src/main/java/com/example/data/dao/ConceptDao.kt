@@ -42,6 +42,15 @@ interface ConceptDao {
     @Query("SELECT * FROM concepts ORDER BY id DESC")
     fun getAllConcepts(): Flow<List<ConceptItem>>
 
+    @Query("SELECT * FROM concepts WHERE isUsed = 0 AND conceptTitle NOT IN (:recentTitles) ORDER BY RANDOM() LIMIT 1")
+    suspend fun getNextUnusedConceptExcludingRecent(recentTitles: List<String>): ConceptItem?
+
+    @Query("SELECT * FROM concepts WHERE isUsed = 0 AND topic IN (:topics) AND conceptTitle NOT IN (:recentTitles) ORDER BY RANDOM() LIMIT 1")
+    suspend fun getNextUnusedConceptForTopicsExcludingRecent(topics: List<String>, recentTitles: List<String>): ConceptItem?
+
+    @Query("DELETE FROM concepts WHERE isUsed = 0")
+    suspend fun clearUnusedConcepts()
+
     @Query("DELETE FROM concepts")
     suspend fun clearAllConcepts()
 }
