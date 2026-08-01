@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Intent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -67,146 +68,175 @@ fun HistoryScreen(
         list
     }
 
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .background(DarkBackground)
-            .padding(16.dp)
-    ) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.History,
-                    contentDescription = null,
-                    tint = ElegantPrimary
-                )
-                Text(
-                    text = "Attempt History",
-                    color = TextPrimary,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold
-                )
-            }
+    var selectedDetailConcept by remember { mutableStateOf<QuestionHistory?>(null) }
 
-            if (allHistory.isNotEmpty()) {
-                IconButton(
-                    onClick = {
-                        coroutineScope.launch {
-                            db.historyDao().clearAllHistory()
-                        }
-                    }
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.DeleteSweep,
-                        contentDescription = "Clear History",
-                        tint = TextMuted
-                    )
+    if (selectedDetailConcept != null) {
+        ConceptDetailScreen(
+            item = selectedDetailConcept!!,
+            onBack = { selectedDetailConcept = null },
+            onStarToggled = { newStarred ->
+                val updated = selectedDetailConcept!!.copy(isStarred = newStarred)
+                selectedDetailConcept = updated
+                coroutineScope.launch {
+                    db.historyDao().updateStarStatus(updated.id, newStarred)
+                    db.conceptDao().updateStarStatusByTitle(updated.conceptTitle, newStarred)
                 }
             }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Topic Filter Chips
-        LazyRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth()
+        )
+    } else {
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .background(DarkBackground)
+                .padding(16.dp)
         ) {
-            items(topicsList) { topic ->
-                FilterChip(
-                    selected = selectedTopicFilter == topic,
-                    onClick = { selectedTopicFilter = topic },
-                    label = { Text(topic, fontSize = 12.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ElegantPrimary,
-                        selectedLabelColor = ElegantOnPrimary,
-                        containerColor = DarkSurface,
-                        labelColor = TextSecondary
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.History,
+                        contentDescription = null,
+                        tint = ElegantPrimary
                     )
-                )
-            }
-        }
+                    Text(
+                        text = "Attempt History",
+                        color = TextPrimary,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Status Filter Chips
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("All", "PASSED", "RETRY_PENDING").forEach { status ->
-                    val displayLabel = when (status) {
-                        "PASSED" -> "Passed"
-                        "RETRY_PENDING" -> "Retry Pending"
-                        else -> "All Status"
+                if (allHistory.isNotEmpty()) {
+                    IconButton(
+                        onClick = {
+                            coroutineScope.launch {
+                                db.historyDao().clearAllHistory()
+                            }
+                        }
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteSweep,
+                            contentDescription = "Clear History",
+                            tint = TextMuted
+                        )
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Topic Filter Chips
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                items(topicsList) { topic ->
                     FilterChip(
-                        selected = selectedStatusFilter == status,
-                        onClick = { selectedStatusFilter = status },
-                        label = { Text(displayLabel, fontSize = 12.sp) },
+                        selected = selectedTopicFilter == topic,
+                        onClick = { selectedTopicFilter = topic },
+                        label = { Text(topic, fontSize = 12.sp) },
                         colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = CodeBlue.copy(alpha = 0.2f),
-                            selectedLabelColor = CodeBlue,
+                            selectedContainerColor = ElegantPrimary,
+                            selectedLabelColor = ElegantOnPrimary,
                             containerColor = DarkSurface,
                             labelColor = TextSecondary
                         )
                     )
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                FilterChip(
-                    selected = selectedStatusFilter == "STARRED",
-                    onClick = { selectedStatusFilter = "STARRED" },
-                    label = { Text("Starred ⭐", fontSize = 12.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = GoldStar.copy(alpha = 0.2f),
-                        selectedLabelColor = GoldStar,
-                        containerColor = DarkSurface,
-                        labelColor = TextSecondary
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Status Filter Chips (Horizontal Scrollable for Landscape & Portrait)
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val statusOptions = listOf("All", "PASSED", "RETRY_PENDING", "STARRED")
+                items(statusOptions) { status ->
+                    val displayLabel = when (status) {
+                        "PASSED" -> "Passed"
+                        "RETRY_PENDING" -> "Retry Pending"
+                        "STARRED" -> "Starred ⭐"
+                        else -> "All Status"
+                    }
+                    val isSelected = selectedStatusFilter == status
+                    val containerCol = when (status) {
+                        "STARRED" -> if (isSelected) GoldStar.copy(alpha = 0.25f) else DarkSurface
+                        "PASSED" -> if (isSelected) SuccessGreen.copy(alpha = 0.25f) else DarkSurface
+                        "RETRY_PENDING" -> if (isSelected) ErrorRed.copy(alpha = 0.25f) else DarkSurface
+                        else -> if (isSelected) CodeBlue.copy(alpha = 0.25f) else DarkSurface
+                    }
+                    val labelCol = when (status) {
+                        "STARRED" -> if (isSelected) GoldStar else TextSecondary
+                        "PASSED" -> if (isSelected) SuccessGreen else TextSecondary
+                        "RETRY_PENDING" -> if (isSelected) ErrorRed else TextSecondary
+                        else -> if (isSelected) CodeBlue else TextSecondary
+                    }
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { selectedStatusFilter = status },
+                        label = { Text(displayLabel, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = containerCol,
+                            selectedLabelColor = labelCol,
+                            containerColor = DarkSurface,
+                            labelColor = TextSecondary
+                        )
                     )
-                )
+                }
             }
-        }
 
-        Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-        if (filteredHistory.isEmpty()) {
+            // History List Container with Flex Weight (Adapts to Landscape Rotation)
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(32.dp),
-                contentAlignment = Alignment.Center
+                    .weight(1f)
+                    .fillMaxWidth()
             ) {
-                Text(
-                    text = if (allHistory.isEmpty()) "No question attempts recorded yet.\nUnlock your phone to start learning!" else "No history matches your selected filters.",
-                    color = TextMuted,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp
-                )
-            }
-        } else {
-            LazyLazyHistoryList(
-                historyList = filteredHistory,
-                onRetryItem = { historyItem ->
-                    val intent = Intent(context, UnlockQuizActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                if (filteredHistory.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (allHistory.isEmpty()) "No question attempts recorded yet.\nUnlock your phone to start learning!" else "No history matches your selected filters.",
+                            color = TextMuted,
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
                     }
-                    context.startActivity(intent)
-                },
-                onToggleStar = { historyItem ->
-                    val newStar = !historyItem.isStarred
-                    coroutineScope.launch {
-                        db.historyDao().updateStarStatus(historyItem.id, newStar)
-                        db.conceptDao().updateStarStatusByTitle(historyItem.conceptTitle, newStar)
-                    }
+                } else {
+                    LazyLazyHistoryList(
+                        historyList = filteredHistory,
+                        onItemClick = { historyItem -> selectedDetailConcept = historyItem },
+                        onRetryItem = { historyItem ->
+                            val intent = Intent(context, UnlockQuizActivity::class.java).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            context.startActivity(intent)
+                        },
+                        onToggleStar = { historyItem ->
+                            val newStar = !historyItem.isStarred
+                            coroutineScope.launch {
+                                db.historyDao().updateStarStatus(historyItem.id, newStar)
+                                db.conceptDao().updateStarStatusByTitle(historyItem.conceptTitle, newStar)
+                            }
+                        }
+                    )
                 }
-            )
+            }
         }
     }
 }
@@ -214,6 +244,7 @@ fun HistoryScreen(
 @Composable
 private fun LazyLazyHistoryList(
     historyList: List<QuestionHistory>,
+    onItemClick: (QuestionHistory) -> Unit,
     onRetryItem: (QuestionHistory) -> Unit,
     onToggleStar: (QuestionHistory) -> Unit
 ) {
@@ -232,7 +263,9 @@ private fun LazyLazyHistoryList(
                         if (item.isCorrect) SuccessGreen.copy(alpha = 0.3f) else ErrorRed.copy(alpha = 0.3f)
                     )
                 ),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onItemClick(item) }
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(

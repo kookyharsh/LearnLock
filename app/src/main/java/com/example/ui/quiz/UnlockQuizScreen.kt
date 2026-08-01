@@ -45,6 +45,7 @@ import com.example.data.entity.ConceptItem
 import com.example.data.entity.QuestionHistory
 import com.example.data.preferences.AppPreferencesManager
 import com.example.service.UnlockReceiver
+import com.example.ui.components.MarkdownView
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -275,96 +276,90 @@ fun UnlockQuizScreen(
                     }
                 }
 
-                // AI Tutor Concept Reader Card (ChatGPT Style)
-                Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                    border = CardDefaults.outlinedCardBorder().copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
+                // AI Tutor Concept Display (Unboxed / Full-width for maximum readability)
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
                 ) {
-                    Column(modifier = Modifier.padding(20.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(CircleShape)
+                                    .background(ElegantPrimary),
+                                contentAlignment = Alignment.Center
                             ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(28.dp)
-                                        .clip(CircleShape)
-                                        .background(ElegantPrimary),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.AutoAwesome,
-                                        contentDescription = null,
-                                        tint = ElegantOnPrimary,
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                }
-                                Text(
-                                    text = topic.uppercase(),
-                                    color = ElegantPrimary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.2.sp
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    tint = ElegantOnPrimary,
+                                    modifier = Modifier.size(16.dp)
                                 )
                             }
-
-                            Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = DarkBackground
-                            ) {
-                                Text(
-                                    text = "AI TUTOR CONCEPT",
-                                    color = TextMuted,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                )
-                            }
+                            Text(
+                                text = topic.uppercase(),
+                                color = ElegantPrimary,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.2.sp
+                            )
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = DarkSurface
+                        ) {
+                            Text(
+                                text = "AI TUTOR CONCEPT",
+                                color = TextMuted,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
 
-                        Text(
-                            text = title,
-                            color = TextPrimary,
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = title,
+                        color = TextPrimary,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 32.sp
+                    )
 
-                        Text(
-                            text = parseMarkdownToAnnotatedString(summary),
-                            color = TextSecondary,
-                            fontSize = 14.sp,
-                            lineHeight = 22.sp
-                        )
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                        if (!codeExample.isNullOrBlank()) {
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Surface(
-                                shape = RoundedCornerShape(12.dp),
-                                color = DarkBackground,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = codeExample,
-                                    color = CodeBlue,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontSize = 13.sp,
-                                    lineHeight = 19.sp,
-                                    modifier = Modifier.padding(14.dp)
-                                )
-                            }
+                    MarkdownView(markdownText = summary)
+
+                    if (!codeExample.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = DarkSurface,
+                            border = CardDefaults.outlinedCardBorder().copy(
+                                brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = codeExample,
+                                color = CodeBlue,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp,
+                                modifier = Modifier.padding(14.dp)
+                            )
                         }
                     }
                 }
@@ -635,52 +630,61 @@ fun UnlockQuizScreen(
                                 showResultDialog = true
 
                                 coroutineScope.launch {
+                                    val userAnswersList = mutableListOf<String>()
+                                    questionsList.forEachIndexed { i, q ->
+                                        val selIdx = selectedOptionIndices[i] ?: -1
+                                        val code = codeAnswers[i] ?: ""
+                                        val isTextQ = q.questionType == "CODE" || q.questionType.contains("FILL", ignoreCase = true) || q.optionsList.isEmpty()
+                                        val ans = if (isTextQ) code.trim() else q.optionsList.getOrNull(selIdx) ?: if (selIdx != -1) selIdx.toString() else "Unanswered"
+                                        userAnswersList.add(ans)
+                                    }
+
+                                    val formattedUserAnswer = if (userAnswersList.size == 1) {
+                                        userAnswersList.first()
+                                    } else {
+                                        userAnswersList.mapIndexed { idx, a -> "Q${idx + 1}: $a" }.joinToString(" | ")
+                                    }
+
                                     val firstQ = questionsList.first()
-                                    val firstUserIdx = selectedOptionIndices[0] ?: -1
-                                    val firstCode = codeAnswers[0] ?: ""
-                                    val isFirstTextQ = firstQ.questionType == "CODE" || firstQ.questionType.contains("FILL", ignoreCase = true) || firstQ.optionsList.isEmpty()
-                                    val firstUserAns = if (isFirstTextQ) firstCode else firstQ.optionsList.getOrNull(firstUserIdx) ?: firstUserIdx.toString()
+                                    val newStatus = if (passed) "PASSED" else "RETRY_PENDING"
+
+                                    // Always insert a new QuestionHistory entry so recent attempts show at top of History
+                                    db.historyDao().insertHistory(
+                                        QuestionHistory(
+                                            id = 0,
+                                            conceptTitle = title,
+                                            topic = topic,
+                                            questionText = if (questionsList.size > 1) "${questionsList.size}-Question Quiz ($correctCount/${questionsList.size} Correct)" else firstQ.questionText,
+                                            userAnswer = formattedUserAnswer,
+                                            correctAnswer = firstQ.correctAnswer,
+                                            isCorrect = passed,
+                                            status = newStatus,
+                                            explanation = firstQ.explanation,
+                                            optionsJson = JSONArray(firstQ.optionsList).toString(),
+                                            questionType = firstQ.questionType,
+                                            codeSnippetPrefix = firstQ.codeSnippetPrefix,
+                                            questionsJson = rawQuestionsJson,
+                                            conceptSummary = summary,
+                                            isStarred = isStarred,
+                                            answeredAt = System.currentTimeMillis()
+                                        )
+                                    )
 
                                     val currentItem = pendingRetryItem
                                     if (currentItem != null) {
-                                        val newStatus = if (passed) "PASSED" else "RETRY_PENDING"
-                                        val updatedHistory = currentItem.copy(
-                                            userAnswer = firstUserAns,
-                                            isCorrect = passed,
-                                            status = newStatus,
-                                            answeredAt = System.currentTimeMillis()
-                                        )
-                                        db.historyDao().updateHistory(updatedHistory)
                                         if (passed) {
                                             db.historyDao().markConceptPassed(currentItem.conceptTitle)
+                                        } else {
+                                            db.historyDao().updateHistory(currentItem.copy(status = "RETRY_RESOLVED"))
                                         }
-                                    } else {
-                                        val concept = currentConcept
-                                        val newStatus = if (passed) "PASSED" else "RETRY_PENDING"
-                                        db.historyDao().insertHistory(
-                                            QuestionHistory(
-                                                conceptTitle = title,
-                                                topic = topic,
-                                                questionText = firstQ.questionText,
-                                                userAnswer = firstUserAns,
-                                                correctAnswer = firstQ.correctAnswer,
-                                                isCorrect = passed,
-                                                status = newStatus,
-                                                explanation = firstQ.explanation,
-                                                optionsJson = JSONArray(firstQ.optionsList).toString(),
-                                                questionType = firstQ.questionType,
-                                                codeSnippetPrefix = firstQ.codeSnippetPrefix,
-                                                questionsJson = rawQuestionsJson,
-                                                conceptSummary = summary,
-                                                isStarred = isStarred
-                                            )
-                                        )
-                                        if (concept != null) {
-                                            db.conceptDao().markConceptUsed(concept.id)
-                                        }
-                                        if (passed) {
-                                            db.historyDao().markConceptPassed(title)
-                                        }
+                                    }
+
+                                    val concept = currentConcept
+                                    if (concept != null) {
+                                        db.conceptDao().markConceptUsed(concept.id)
+                                    }
+                                    if (passed) {
+                                        db.historyDao().markConceptPassed(title)
                                     }
                                 }
                             },

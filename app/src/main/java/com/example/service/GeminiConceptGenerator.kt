@@ -143,7 +143,9 @@ class GeminiConceptGenerator(
 
         val subjectRules = if (isTechnicalTopic) {
             """
-            - You may generate code examples and use questionType "MCQ" or "CODE" or "FILL IN THE BLANKS".
+            - You may generate code examples and use questionType "MCQ" or "CODE" or "FILL_BLANK".
+            - CRITICAL: DO NOT generate long multi-line code implementation questions (e.g. "Write a class...", "Implement a function..."). Keep all questions short, clear, and micro-learning focused.
+            - For CODE or FILL_BLANK questions, keep the answer strictly to a short single-line expression or statement (e.g. "list.length", "map.get(key)").
             """.trimIndent()
         } else {
             """
@@ -161,11 +163,12 @@ class GeminiConceptGenerator(
             Rules:
             1. Provide a short, relevant concept title.
             2. Provide a detailed concept explanation (strictly 50-100 words) formatted in markdown (`**bold**`, `*italic*`, `<u>underline</u>`, code backticks where relevant). Explain what it is, why it matters, and a quick real-world example. Make it read like an engaging AI tutor message!
-            3. Provide an array "questions" containing EXACLTY 3 distinct questions for this concept (e.g. MCQ, True/False, Fill in the Blank, or Code).
+            3. Provide an array "questions" containing EXACTLY 3 distinct short questions for this concept (e.g. MCQ, True/False, Fill in the Blank).
+               - DO NOT ask the user to write full classes, functions, or complex code blocks.
                - For MCQ: provide 4 distinct choices in "options" array, and set "correctAnswer" to option index ("0", "1", "2", or "3").
                - For TRUE_FALSE: set "options" to ["True", "False"], and set "correctAnswer" to "0" or "1".
-               - For FILL_BLANK: set "questionType" to "FILL_BLANK", provide expected word in "correctAnswer".
-               - For CODE: set "questionType" to "CODE", provide prefix in "codeSnippetPrefix", expected answer in "correctAnswer".
+               - For FILL_BLANK: set "questionType" to "FILL_BLANK", provide a single word or short expression in "correctAnswer".
+               - For CODE: set "questionType" to "CODE", provide a 1-line code snippet prefix in "codeSnippetPrefix", and expected short 1-line answer in "correctAnswer".
             $subjectRules
 
             Return ONLY a valid JSON array matching this structure:

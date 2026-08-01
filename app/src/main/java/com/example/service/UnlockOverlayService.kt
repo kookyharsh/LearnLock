@@ -1,5 +1,6 @@
 package com.example.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -36,6 +37,7 @@ class UnlockOverlayService : Service() {
         }
     }
 
+    @SuppressLint("ForegroundServiceType")
     private fun startForegroundNotification() {
         val channelId = "unlock_learn_channel"
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -78,12 +80,6 @@ class UnlockOverlayService : Service() {
                     android.util.Log.w("UnlockOverlayService", "specialUse FGS type rejected, falling back to standard startForeground", t)
                     startForeground(1001, notification)
                 }
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    1001,
-                    notification,
-                    0
-                )
             } else {
                 startForeground(1001, notification)
             }

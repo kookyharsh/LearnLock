@@ -304,7 +304,7 @@ fun SettingsScreen(
                             readOnly = true,
                             enabled = false,
                             label = { Text("Start Time") },
-                            placeholder = { Text("09:00") },
+                            placeholder = { Text("09:00 AM") },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 disabledBorderColor = DarkBorder,
@@ -353,7 +353,7 @@ fun SettingsScreen(
                             readOnly = true,
                             enabled = false,
                             label = { Text("End Time") },
-                            placeholder = { Text("21:00") },
+                            placeholder = { Text("09:00 PM") },
                             singleLine = true,
                             colors = OutlinedTextFieldDefaults.colors(
                                 disabledBorderColor = DarkBorder,

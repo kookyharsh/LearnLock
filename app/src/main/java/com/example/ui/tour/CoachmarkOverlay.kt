@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Density
@@ -34,21 +35,6 @@ import com.example.ui.theme.ElegantOnPrimary
 import com.example.ui.theme.ElegantPrimary
 import com.example.ui.theme.TextPrimary
 import com.example.ui.theme.TextSecondary
-
-enum class CoachmarkStep(val title: String, val description: String) {
-    LEARN_TAB(
-        "Learn Tab",
-        "This is where your active concept and quiz will appear whenever you unlock your device."
-    ),
-    HISTORY_TAB(
-        "History & Progress",
-        "Track your progress and review all previously generated concepts and quiz questions here."
-    ),
-    SETTINGS_TAB(
-        "Credentials & Topics",
-        "Add your Gemini API key and specify your own custom learning topics (subjects) here."
-    )
-}
 
 class BubbleShape(
     private val arrowOffset: Float,
@@ -105,14 +91,15 @@ fun CoachmarkOverlay(
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val screenWidth = with(density) { configuration.screenWidthDp.dp.toPx() }
     
     // Draw semi-transparent background with cut-out / spotlight effect
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .clickable(enabled = false) {} // block click propagation
     ) {
-        val screenWidth = constraints.maxWidth.toFloat()
 
         Canvas(modifier = Modifier.fillMaxSize()) {
             val canvasWidth = size.width
