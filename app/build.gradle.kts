@@ -9,6 +9,18 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+fun versionCodeFromTag(versionName: String): Int {
+  val parts = versionName.split(".").mapNotNull { it.toIntOrNull() }
+  return when {
+    parts.isEmpty() -> 1
+    parts.size == 1 -> parts[0] * 10000
+    parts.size == 2 -> parts[0] * 10000 + parts[1] * 100
+    else -> parts[0] * 10000 + parts[1] * 100 + parts[2]
+  }
+}
+
+val tagVersion: String? = System.getenv("GIT_TAG_VERSION")?.trim()?.takeIf { it.isNotBlank() }
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -17,8 +29,8 @@ android {
     applicationId = "com.example"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = tagVersion?.let { runCatching { versionCodeFromTag(it) }.getOrDefault(1) } ?: 1
+    versionName = tagVersion ?: "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     buildConfigField("String", "GOOGLE_CLIENT_ID", "\"${System.getenv("GOOGLE_CLIENT_ID") ?: ""}\"")
@@ -30,7 +42,7 @@ android {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
+      keyAlias = System.getenv("KEY_ALIAS") ?: "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
