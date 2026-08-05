@@ -13,6 +13,7 @@ import com.example.R
 import com.example.data.AppDatabase
 import com.example.data.preferences.AppPreferencesManager
 import com.example.data.entity.ConceptItem
+import com.example.data.TutorState
 import com.example.data.resolveWeakestTopic
 import com.example.data.scheduler.AdaptiveScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -29,7 +30,12 @@ class UnlockReceiver : BroadcastReceiver() {
         Log.d("UnlockReceiver", "Received action: $action")
 
         val prefsManager = AppPreferencesManager(context)
-        if (!prefsManager.isUnlockServiceEnabled()) return
+        if (!TutorState.isActive(
+                serviceEnabled = prefsManager.isUnlockServiceEnabled(),
+                disabledUntil = prefsManager.getTutorDisabledUntil(),
+                now = System.currentTimeMillis()
+            )
+        ) return
 
         when (action) {
             Intent.ACTION_BOOT_COMPLETED -> {

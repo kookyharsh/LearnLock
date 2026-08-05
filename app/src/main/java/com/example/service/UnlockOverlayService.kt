@@ -90,7 +90,14 @@ class UnlockOverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // Pre-generate concepts in background when service starts
         val prefsManager = AppPreferencesManager(applicationContext)
-        UnlockReceiver.pregenerateConceptsIfNeeded(applicationContext, prefsManager)
+        if (com.example.data.TutorState.isActive(
+                serviceEnabled = prefsManager.isUnlockServiceEnabled(),
+                disabledUntil = prefsManager.getTutorDisabledUntil(),
+                now = System.currentTimeMillis()
+            )
+        ) {
+            UnlockReceiver.pregenerateConceptsIfNeeded(applicationContext, prefsManager)
+        }
         return START_STICKY
     }
 

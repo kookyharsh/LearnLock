@@ -93,6 +93,14 @@ class AppPreferencesManager(private val context: Context) {
         prefs.edit().putBoolean(KEY_SERVICE_ENABLED, enabled).apply()
     }
 
+    fun getTutorDisabledUntil(): Long {
+        return prefs.getLong(KEY_TUTOR_DISABLED_UNTIL, 0L)
+    }
+
+    fun setTutorDisabledUntil(epochMillis: Long) {
+        prefs.edit().putLong(KEY_TUTOR_DISABLED_UNTIL, epochMillis).apply()
+    }
+
     fun isDriveSyncEnabled(): Boolean {
         return prefs.getBoolean(KEY_DRIVE_SYNC, true)
     }
@@ -158,6 +166,7 @@ class AppPreferencesManager(private val context: Context) {
         private const val KEY_SKIP_DURING_ACTIVE = "skip_during_active"
         private const val KEY_TOPICS = "selected_topics"
         private const val KEY_SERVICE_ENABLED = "service_enabled"
+        private const val KEY_TUTOR_DISABLED_UNTIL = "tutor_disabled_until"
         private const val KEY_DRIVE_SYNC = "drive_sync_enabled"
         private const val KEY_LAST_SYNC = "last_sync_timestamp"
         private const val KEY_GOOGLE_USER_EMAIL = "google_user_email"
