@@ -85,4 +85,7 @@ interface ConceptDao {
 
     @Query("DELETE FROM concepts")
     suspend fun clearAllConcepts()
+
+    @Query("SELECT COUNT(*) FROM concepts")
+    suspend fun getConceptCount(): Int
 }

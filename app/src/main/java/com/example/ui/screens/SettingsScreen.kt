@@ -1,5 +1,7 @@
 package com.example.ui.screens
 
+import android.content.ComponentName
+import android.os.Build
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -10,9 +12,11 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Api
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Schedule
@@ -30,8 +34,10 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.R
 import com.example.data.preferences.AppPreferencesManager
 import com.example.service.GeminiConceptGenerator
+import com.example.service.TutorTileService
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 
@@ -62,6 +68,62 @@ fun SettingsScreen(
 
     var questionsCountInput by remember { mutableIntStateOf(prefsManager.getQuestionsPerQuiz()) }
     var difficultyInput by remember { mutableStateOf(prefsManager.getDifficultyLevel()) }
+
+    var showDeleteConfirm by remember { mutableStateOf(false) }
+    var conceptCount by remember { mutableStateOf<Int?>(null) }
+    var historyCount by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(Unit) {
+        try {
+            val db = com.example.data.AppDatabase.getDatabase(context)
+            conceptCount = db.conceptDao().getConceptCount()
+            historyCount = db.historyDao().getHistoryCount()
+        } catch (_: Exception) {}
+    }
+
+    val requestTileAdd = {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val statusBar = context.getSystemService(android.app.StatusBarManager::class.java)
+            statusBar.requestAddTileService(
+                ComponentName(context, TutorTileService::class.java),
+                context.getString(R.string.tile_label),
+                android.graphics.drawable.Icon.createWithResource(context, R.drawable.ic_tile_tutor),
+                context.mainExecutor
+            ) { result ->
+                val message = when (result) {
+                    android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_ADDED ->
+                        "Tutor tile added to Quick Settings!"
+                    android.app.StatusBarManager.TILE_ADD_REQUEST_RESULT_TILE_NOT_ADDED ->
+                        "Tutor tile was not added."
+                    else -> null
+                }
+                if (message != null) {
+                    Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+                }
+            }
+        } else {
+            Toast.makeText(
+                context,
+                "Swipe down twice, tap the pencil icon, and add the Tutor tile.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    val deleteAllData = {
+        coroutineScope.launch {
+            try {
+                val db = com.example.data.AppDatabase.getDatabase(context)
+                db.conceptDao().clearAllConcepts()
+                db.historyDao().clearAllHistory()
+                conceptCount = 0
+                historyCount = 0
+                Toast.makeText(context, "All learning data deleted", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to delete data: ${e.message}", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
 
     Column(
         modifier = modifier
@@ -659,5 +721,147 @@ fun SettingsScreen(
                 }
             }
         }
+
+        // Quick Settings Tile
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AddCircle,
+                        contentDescription = null,
+                        tint = CodeBlue
+                    )
+                    Text(
+                        text = "Quick Settings Tile",
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Toggle the tutor on/off from the notification panel. Long-press the tile to pause it for a set time.",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+                OutlinedButton(
+                    onClick = requestTileAdd,
+                    shape = CircleShape,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = ElegantPrimary),
+                    border = CardDefaults.outlinedCardBorder().copy(
+                        brush = androidx.compose.ui.graphics.SolidColor(ElegantPrimary)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AddCircle,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Add Tutor toggle to Quick Settings",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+        }
+
+        // Data & Privacy Card
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
+            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteForever,
+                        contentDescription = null,
+                        tint = ErrorRed
+                    )
+                    Text(
+                        text = "Data & Privacy",
+                        color = TextPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Learning data is stored locally on this device. Your API key and settings are kept.",
+                    color = TextSecondary,
+                    fontSize = 13.sp
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+                val counts = buildString {
+                    append(conceptCount?.let { "$it concepts" } ?: "…")
+                    historyCount?.let { append(" · $it quiz answers") }
+                }
+                Text(
+                    text = "Currently stored: $counts",
+                    color = TextMuted,
+                    fontSize = 12.sp
+                )
+
+                Spacer(modifier = Modifier.height(14.dp))
+                Button(
+                    onClick = { showDeleteConfirm = true },
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ErrorRed,
+                        contentColor = DarkBackground
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Delete All Learning Data", fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+
+    if (showDeleteConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            containerColor = DarkSurface,
+            titleContentColor = TextPrimary,
+            textContentColor = TextSecondary,
+            title = { Text("Delete all learning data?") },
+            text = { Text("This permanently deletes every generated concept and quiz answer, including spaced-repetition and mastery progress. This cannot be undone.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirm = false
+                        deleteAllData()
+                    }
+                ) {
+                    Text("Delete", color = ErrorRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("Cancel", color = TextMuted)
+                }
+            }
+        )
     }
 }
