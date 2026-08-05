@@ -29,6 +29,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -62,6 +63,14 @@ data class QuizQuestion(
     val correctAnswer: String,
     val explanation: String
 )
+
+private fun difficultyColor(difficulty: String?): Color {
+    return when (difficulty) {
+        "Easy" -> SuccessGreen
+        "Hard" -> ErrorRed
+        else -> GoldStar
+    }
+}
 
 @Composable
 fun UnlockQuizScreen(
@@ -415,6 +424,51 @@ fun UnlockQuizScreen(
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
+                            }
+                            val difficulty = pendingRetryItem?.difficulty ?: currentConcept?.difficulty
+                            if (difficulty != null) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = difficultyColor(difficulty).copy(alpha = 0.12f)
+                                ) {
+                                    Text(
+                                        text = difficulty.uppercase(),
+                                        color = difficultyColor(difficulty),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.8.sp,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+
+                        val mastery = currentConcept?.masteryScore ?: 0.0
+                        val isMastered = currentConcept?.let {
+                            AdaptiveScheduler.statusOf(
+                                it.repetitions,
+                                it.intervalDays,
+                                it.nextReviewAt
+                            ) == AdaptiveScheduler.STATUS_MASTERED
+                        } == true
+                        if (mastery > 0.0) {
+                            Box(
+                                modifier = Modifier.size(40.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(
+                                    progress = { mastery.toFloat() },
+                                    color = if (isMastered) GoldStar else ElegantPrimary,
+                                    trackColor = DarkSurfaceVariant,
+                                    strokeWidth = 4.dp,
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                                Text(
+                                    text = "${(mastery * 100).toInt()}%",
+                                    color = if (isMastered) GoldStar else TextSecondary,
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
