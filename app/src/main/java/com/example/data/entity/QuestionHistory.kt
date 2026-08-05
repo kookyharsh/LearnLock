@@ -21,5 +21,7 @@ data class QuestionHistory(
     val questionsJson: String? = null,
     val conceptSummary: String? = null,
     val isStarred: Boolean = false,
-    val answeredAt: Long = System.currentTimeMillis()
+    val answeredAt: Long = System.currentTimeMillis(),
+    val perQuestionResultsJson: String? = null,
+    val difficulty: String = "Medium"
 )

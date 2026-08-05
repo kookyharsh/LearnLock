@@ -20,5 +20,12 @@ data class ConceptItem(
     val isUsed: Boolean = false,
     val questionsJson: String? = null,
     val isStarred: Boolean = false,
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long = System.currentTimeMillis(),
+    val repetitions: Int = 0,
+    val easeFactor: Double = 2.5,
+    val intervalDays: Int = 0,
+    val nextReviewAt: Long? = null,
+    val lapses: Int = 0,
+    val masteryScore: Double = 0.0,
+    val difficulty: String = "Medium"
 )
