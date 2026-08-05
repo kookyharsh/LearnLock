@@ -43,6 +43,16 @@
             android:launchMode="singleInstance"
             android:excludeFromRecents="true" />
 
+        <activity
+            android:name=".service.TutorSnoozeActivity"
+            android:exported="true"
+            android:label="@string/tile_label"
+            android:theme="@style/Theme.MyApplication">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".service.UnlockOverlayService"
             android:enabled="true"
