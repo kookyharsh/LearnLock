@@ -264,6 +264,7 @@ private fun LazyLazyHistoryList(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
+                    .animateItem()
                     .clickable { onItemClick(item) }
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {

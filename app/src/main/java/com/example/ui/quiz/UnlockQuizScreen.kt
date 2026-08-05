@@ -1,12 +1,17 @@
 package com.example.ui.quiz
 
 import android.text.format.DateFormat
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -530,7 +535,11 @@ fun UnlockQuizScreen(
                     }
                 }
 
-                if (!isQuizStarted) {
+                AnimatedContent(
+                    targetState = isQuizStarted,
+                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(150)) }
+                ) { started ->
+                if (!started) {
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { isQuizStarted = true },
@@ -599,8 +608,13 @@ fun UnlockQuizScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
+                        val progressAnim = animateFloatAsState(
+                            targetValue = (qIndex + 1).toFloat() / questionsList.size,
+                            animationSpec = tween(300),
+                            label = "quizProgress"
+                        )
                         LinearProgressIndicator(
-                            progress = { (qIndex + 1).toFloat() / questionsList.size },
+                            progress = { progressAnim.value },
                             color = ElegantPrimary,
                             trackColor = DarkBackground,
                             modifier = Modifier
@@ -833,8 +847,12 @@ fun UnlockQuizScreen(
                                 }
 
                                 // Inline Explanation Box when answered
-                                if (isAnswered && currentQ.explanation.isNotBlank()) {
-                                    Spacer(modifier = Modifier.height(12.dp))
+                                AnimatedVisibility(
+                                    visible = isAnswered && currentQ.explanation.isNotBlank(),
+                                    enter = fadeIn(tween(200)) + expandVertically(),
+                                    exit = fadeOut(tween(120))
+                                ) {
+                                Spacer(modifier = Modifier.height(12.dp))
                                     Surface(
                                         shape = RoundedCornerShape(14.dp),
                                         color = DarkSurface,
@@ -1074,6 +1092,7 @@ fun UnlockQuizScreen(
                         )
                     }
                     }
+                }
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
