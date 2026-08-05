@@ -71,6 +71,9 @@ interface ConceptDao {
     @Query("SELECT DISTINCT topic FROM concepts")
     suspend fun getDistinctTopics(): List<String>
 
+    @Query("SELECT * FROM concepts WHERE isUsed = 1 AND masteryScore < 0.5 ORDER BY masteryScore ASC LIMIT :limit")
+    suspend fun getWeakConcepts(limit: Int): List<ConceptItem>
+
     @Query("SELECT * FROM concepts WHERE isUsed = 0 AND conceptTitle NOT IN (:recentTitles) ORDER BY RANDOM() LIMIT 1")
     suspend fun getNextUnusedConceptExcludingRecent(recentTitles: List<String>): ConceptItem?
 

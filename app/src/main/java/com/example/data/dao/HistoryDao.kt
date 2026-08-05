@@ -65,6 +65,9 @@ interface HistoryDao {
     @Query("SELECT answeredAt FROM question_history WHERE conceptTitle = :conceptTitle ORDER BY answeredAt DESC LIMIT :limit")
     suspend fun getRecentTimestampsForConcept(conceptTitle: String, limit: Int): List<Long>
 
+    @Query("SELECT COUNT(*) FROM question_history WHERE status = 'RETRY_PENDING' AND topic = :topic")
+    suspend fun getPendingRetryCountForTopic(topic: String): Int
+
     @Delete
     suspend fun deleteHistory(history: QuestionHistory)
 

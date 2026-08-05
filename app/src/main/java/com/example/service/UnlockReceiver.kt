@@ -13,6 +13,8 @@ import com.example.R
 import com.example.data.AppDatabase
 import com.example.data.preferences.AppPreferencesManager
 import com.example.data.entity.ConceptItem
+import com.example.data.resolveWeakestTopic
+import com.example.data.scheduler.AdaptiveScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -157,17 +159,45 @@ class UnlockReceiver : BroadcastReceiver() {
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val db = AppDatabase.getDatabase(context)
+                    val now = System.currentTimeMillis()
                     var unusedCount = db.conceptDao().getUnusedCountDirect()
-
-
+                    val dueCount = db.conceptDao().getDueReviewsCount(now)
 
                     val apiKey = prefsManager.getApiKey()
-                    if (unusedCount < 3 && apiKey.isNotBlank()) {
-                        Log.d("UnlockReceiver", "Queue low ($unusedCount unused). Generating concepts via AI...")
+                    if ((unusedCount < 3 || dueCount < 2) && apiKey.isNotBlank()) {
+                        Log.d("UnlockReceiver", "Queue low (unused=$unusedCount, due=$dueCount). Generating concepts via AI...")
+                        val selectedTopics = prefsManager.getSelectedTopics()
                         val generator = GeminiConceptGenerator(prefsManager)
+
+                        // Target the weakest topic with mastery-resolved difficulty
+                        val weakestTopic = resolveWeakestTopic(db, selectedTopics.toList())
+                        val targetTopics = if (weakestTopic != null) setOf(weakestTopic) else selectedTopics
+                        if (targetTopics.isEmpty()) {
+                            Log.w("UnlockReceiver", "No topics available for pre-generation.")
+                            return@launch
+                        }
+
+                        val topicAccuracy = db.historyDao().getTopicAccuracy()
+                            .associateBy { it.topic }
+                        val accuracy = topicAccuracy[weakestTopic]
+                        val mastery = if (accuracy == null || accuracy.total == 0) 0.5
+                        else accuracy.correct.toDouble() / accuracy.total
+                        val retryCount = weakestTopic?.let {
+                            db.historyDao().getPendingRetryCountForTopic(it)
+                        } ?: 0
+                        val difficulty = AdaptiveScheduler.resolveDifficulty(
+                            baseSetting = prefsManager.getDifficultyLevel(),
+                            mastery = mastery,
+                            lapses = retryCount
+                        )
+                        val focusAreas = db.conceptDao().getWeakConcepts(5)
+                            .map { it.conceptTitle }
+
                         val newConcepts = generator.generateBatchConcepts(
-                            topics = prefsManager.getSelectedTopics(),
-                            count = 3
+                            topics = targetTopics,
+                            count = 3,
+                            difficultyOverride = difficulty,
+                            focusAreas = focusAreas
                         )
                         if (newConcepts.isNotEmpty()) {
                             db.conceptDao().insertConcepts(newConcepts)
