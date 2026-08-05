@@ -110,7 +110,9 @@ class GeminiConceptGenerator(
 
     suspend fun generateBatchConcepts(
         topics: Set<String>,
-        count: Int = 3
+        count: Int = 3,
+        difficultyOverride: String? = null,
+        focusAreas: List<String> = emptyList()
     ): List<ConceptItem> = withContext(Dispatchers.IO) {
         val apiKey = prefsManager.getApiKey().trim()
         if (apiKey.isBlank()) {
@@ -125,11 +127,17 @@ class GeminiConceptGenerator(
 
         val selectedTopic = topics.toList().random()
         val questionsPerQuiz = prefsManager.getQuestionsPerQuiz()
-        val difficultyLevel = prefsManager.getDifficultyLevel()
+        val effectiveDifficulty = difficultyOverride ?: prefsManager.getDifficultyLevel()
+        val focusAreasLine = if (focusAreas.isNotEmpty()) {
+            "The learner has struggled with these concepts recently; prefer generating concepts closely related to them: ${focusAreas.take(5).joinToString(", ")}."
+        } else {
+            "Prefer generating a balanced mix of foundational and practical concepts."
+        }
 
         val prompt = """
             You are an expert tutor in '$selectedTopic'.
-            Target Difficulty Level: '$difficultyLevel' (Adapt depth and question difficulty to '$difficultyLevel').
+            Target Difficulty Level: '$effectiveDifficulty' (Adapt depth and question difficulty to '$effectiveDifficulty').
+            $focusAreasLine
             Generate $count unique concepts for the topic '$selectedTopic'.
             Each concept must include a structured, easy-to-read explanation and an array of EXACTLY $questionsPerQuiz quiz questions.
 
@@ -157,6 +165,7 @@ class GeminiConceptGenerator(
                 "conceptTitle": "Title",
                 "conceptSummary": "Core definition here...\n\n- **Key Point 1**: Detail 1\n- **Key Point 2**: Detail 2\n\nTakeaway example...",
                 "codeExample": null,
+                "difficulty": "$effectiveDifficulty",
                 "questions": [
                   {
                     "questionType": "MCQ",
@@ -321,7 +330,8 @@ class GeminiConceptGenerator(
                         correctAnswer = firstQ.optString("correctAnswer", item.optString("correctAnswer", "0")),
                         explanation = firstQ.optString("explanation", item.optString("explanation", "Correct answer verified!")),
                         isUsed = false,
-                        questionsJson = questionsStr
+                        questionsJson = questionsStr,
+                        difficulty = item.optString("difficulty", effectiveDifficulty)
                     )
                 )
             }
