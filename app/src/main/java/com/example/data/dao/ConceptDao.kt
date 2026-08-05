@@ -24,6 +24,32 @@ interface ConceptDao {
     @Query("UPDATE concepts SET isUsed = 1 WHERE id = :id")
     suspend fun markConceptUsed(id: Long)
 
+    @Query("UPDATE concepts SET repetitions = :repetitions, easeFactor = :easeFactor, intervalDays = :intervalDays, nextReviewAt = :nextReviewAt, lapses = :lapses, masteryScore = :masteryScore WHERE id = :id")
+    suspend fun updateReviewState(
+        id: Long,
+        repetitions: Int,
+        easeFactor: Double,
+        intervalDays: Int,
+        nextReviewAt: Long?,
+        lapses: Int,
+        masteryScore: Double
+    )
+
+    @Query("SELECT * FROM concepts WHERE nextReviewAt IS NOT NULL AND nextReviewAt <= :now ORDER BY nextReviewAt ASC LIMIT :limit")
+    suspend fun getDueReviews(now: Long, limit: Int): List<ConceptItem>
+
+    @Query("SELECT * FROM concepts WHERE nextReviewAt IS NOT NULL AND nextReviewAt <= :now AND topic IN (:topics) ORDER BY nextReviewAt ASC LIMIT :limit")
+    suspend fun getDueReviewsForTopics(topics: List<String>, now: Long, limit: Int): List<ConceptItem>
+
+    @Query("SELECT COUNT(*) FROM concepts WHERE nextReviewAt IS NOT NULL AND nextReviewAt <= :now")
+    suspend fun getDueReviewsCount(now: Long): Int
+
+    @Query("SELECT * FROM concepts WHERE isUsed = 0 AND topic = :topic AND conceptTitle NOT IN (:recentTitles) ORDER BY RANDOM() LIMIT 1")
+    suspend fun getNextUnusedConceptForTopicExcludingRecent(topic: String, recentTitles: List<String>): ConceptItem?
+
+    @Query("SELECT * FROM concepts WHERE isUsed = 0 AND topic = :topic ORDER BY RANDOM() LIMIT 1")
+    suspend fun getNextUnusedConceptForTopic(topic: String): ConceptItem?
+
     @Query("SELECT * FROM concepts WHERE conceptTitle = :title LIMIT 1")
     suspend fun getConceptByTitle(title: String): ConceptItem?
 

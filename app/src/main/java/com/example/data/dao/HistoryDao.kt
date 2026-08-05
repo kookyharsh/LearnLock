@@ -9,6 +9,12 @@ import androidx.room.Update
 import com.example.data.entity.QuestionHistory
 import kotlinx.coroutines.flow.Flow
 
+data class TopicAccuracy(
+    val topic: String,
+    val correct: Int,
+    val total: Int
+)
+
 @Dao
 interface HistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -49,6 +55,15 @@ interface HistoryDao {
 
     @Query("SELECT DISTINCT conceptTitle FROM question_history WHERE answeredAt > :sinceTime")
     suspend fun getRecentConceptTitles(sinceTime: Long): List<String>
+
+    @Query("SELECT topic, SUM(CASE WHEN isCorrect = 1 THEN 1 ELSE 0 END) AS correct, COUNT(*) AS total FROM question_history GROUP BY topic")
+    suspend fun getTopicAccuracy(): List<TopicAccuracy>
+
+    @Query("SELECT isCorrect FROM question_history WHERE conceptTitle = :conceptTitle ORDER BY answeredAt DESC LIMIT :limit")
+    suspend fun getRecentCorrectnessForConcept(conceptTitle: String, limit: Int): List<Boolean>
+
+    @Query("SELECT answeredAt FROM question_history WHERE conceptTitle = :conceptTitle ORDER BY answeredAt DESC LIMIT :limit")
+    suspend fun getRecentTimestampsForConcept(conceptTitle: String, limit: Int): List<Long>
 
     @Delete
     suspend fun deleteHistory(history: QuestionHistory)
