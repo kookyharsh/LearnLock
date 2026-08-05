@@ -68,6 +68,9 @@ interface ConceptDao {
     @Query("SELECT * FROM concepts ORDER BY id DESC")
     fun getAllConcepts(): Flow<List<ConceptItem>>
 
+    @Query("SELECT DISTINCT topic FROM concepts")
+    suspend fun getDistinctTopics(): List<String>
+
     @Query("SELECT * FROM concepts WHERE isUsed = 0 AND conceptTitle NOT IN (:recentTitles) ORDER BY RANDOM() LIMIT 1")
     suspend fun getNextUnusedConceptExcludingRecent(recentTitles: List<String>): ConceptItem?
 

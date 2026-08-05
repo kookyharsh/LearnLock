@@ -41,14 +41,17 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.AppDatabase
+import com.example.data.dao.TopicAccuracy
 import com.example.data.entity.ConceptItem
 import com.example.data.entity.QuestionHistory
 import com.example.data.preferences.AppPreferencesManager
+import com.example.data.scheduler.AdaptiveScheduler
 import com.example.service.UnlockReceiver
 import com.example.ui.components.MarkdownView
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
 import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Date
 
 data class QuizQuestion(
@@ -102,15 +105,36 @@ fun UnlockQuizScreen(
                 val cooldown24h = System.currentTimeMillis() - (24 * 60 * 60 * 1000)
                 val recentTitles = db.historyDao().getRecentConceptTitles(cooldown24h)
                 val targetCount = prefsManager.getQuestionsPerQuiz()
+                val now = System.currentTimeMillis()
 
+                // 1) Spaced repetition: surface due reviews first
                 var concept = if (selectedTopics.isEmpty()) {
-                    db.conceptDao().getNextUnusedConceptExcludingRecent(recentTitles)
+                    db.conceptDao().getDueReviews(now, 1).firstOrNull()
                 } else {
-                    db.conceptDao().getNextUnusedConceptForTopicsExcludingRecent(selectedTopics, recentTitles)
-                } ?: if (selectedTopics.isEmpty()) {
-                    db.conceptDao().getNextUnusedConcept()
-                } else {
-                    db.conceptDao().getNextUnusedConceptForTopics(selectedTopics)
+                    db.conceptDao().getDueReviewsForTopics(selectedTopics, now, 1).firstOrNull()
+                }
+
+                // 2) Fresh concept from the weakest topic
+                if (concept == null) {
+                    val weakestTopic = resolveWeakestTopic(db, selectedTopics)
+                    if (weakestTopic != null) {
+                        concept = db.conceptDao()
+                            .getNextUnusedConceptForTopicExcludingRecent(weakestTopic, recentTitles)
+                            ?: db.conceptDao().getNextUnusedConceptForTopic(weakestTopic)
+                    }
+                }
+
+                // 3) Fallback: existing random selection
+                if (concept == null) {
+                    concept = if (selectedTopics.isEmpty()) {
+                        db.conceptDao().getNextUnusedConceptExcludingRecent(recentTitles)
+                    } else {
+                        db.conceptDao().getNextUnusedConceptForTopicsExcludingRecent(selectedTopics, recentTitles)
+                    } ?: if (selectedTopics.isEmpty()) {
+                        db.conceptDao().getNextUnusedConcept()
+                    } else {
+                        db.conceptDao().getNextUnusedConceptForTopics(selectedTopics)
+                    }
                 }
 
                 // Verify fetched concept matches current user question count preference
@@ -357,6 +381,41 @@ fun UnlockQuizScreen(
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.2.sp
                             )
+                            val srsStatus = remember(pendingRetryItem, currentConcept) {
+                                val concept = currentConcept
+                                when {
+                                    pendingRetryItem != null -> "RETRY"
+                                    concept == null -> ""
+                                    else -> {
+                                        val status = AdaptiveScheduler.statusOf(
+                                            concept.repetitions,
+                                            concept.intervalDays,
+                                            concept.nextReviewAt
+                                        )
+                                        val isDue = concept.nextReviewAt?.let { it <= System.currentTimeMillis() } == true
+                                        when {
+                                            status == AdaptiveScheduler.STATUS_NEW -> "NEW"
+                                            isDue -> "$status • DUE"
+                                            else -> status
+                                        }
+                                    }
+                                }
+                            }
+                            if (srsStatus.isNotBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = ElegantPrimary.copy(alpha = 0.12f)
+                                ) {
+                                    Text(
+                                        text = srsStatus,
+                                        color = ElegantPrimary,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.8.sp,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -811,6 +870,19 @@ fun UnlockQuizScreen(
                                 val firstQ = questionsList.first()
                                 val newStatus = if (passed) "PASSED" else "RETRY_PENDING"
 
+                                // Per-question correctness for mastery tracking
+                                val perQuestionResults = JSONArray().apply {
+                                    questionsList.forEachIndexed { i, q ->
+                                        put(JSONObject().apply {
+                                            put("idx", i)
+                                            put("isCorrect", (selectedOptionIndices[i] ?: -1) == getCorrectOptionIndex(q))
+                                        })
+                                    }
+                                }.toString()
+                                val answeredDifficulty = currentConcept?.difficulty
+                                    ?: pendingRetryItem?.difficulty
+                                    ?: "Medium"
+
                                 // Insert QuestionHistory entry (RETRY_PENDING if failed so user can re-practice in History)
                                 db.historyDao().insertHistory(
                                     QuestionHistory(
@@ -829,7 +901,9 @@ fun UnlockQuizScreen(
                                         questionsJson = rawQuestionsJson,
                                         conceptSummary = summary,
                                         isStarred = isStarred,
-                                        answeredAt = System.currentTimeMillis()
+                                        answeredAt = System.currentTimeMillis(),
+                                        perQuestionResultsJson = perQuestionResults,
+                                        difficulty = answeredDifficulty
                                     )
                                 )
 
@@ -846,6 +920,35 @@ fun UnlockQuizScreen(
                                 val concept = currentConcept
                                 if (concept != null) {
                                     db.conceptDao().markConceptUsed(concept.id)
+                                    // Spaced-repetition scheduling + mastery update
+                                    val answeredAt = System.currentTimeMillis()
+                                    val srs = AdaptiveScheduler.scheduleAnswer(
+                                        repetitions = concept.repetitions,
+                                        easeFactor = concept.easeFactor,
+                                        intervalDays = concept.intervalDays,
+                                        nextReviewAt = concept.nextReviewAt,
+                                        lapses = concept.lapses,
+                                        passed = passed,
+                                        now = answeredAt
+                                    )
+                                    val recentCorrect = db.historyDao()
+                                        .getRecentCorrectnessForConcept(title, 10)
+                                    val recentTimes = db.historyDao()
+                                        .getRecentTimestampsForConcept(title, 10)
+                                    val mastery = AdaptiveScheduler.computeMastery(
+                                        recentCorrect,
+                                        recentTimes,
+                                        answeredAt
+                                    )
+                                    db.conceptDao().updateReviewState(
+                                        id = concept.id,
+                                        repetitions = srs.repetitions,
+                                        easeFactor = srs.easeFactor,
+                                        intervalDays = srs.intervalDays,
+                                        nextReviewAt = srs.nextReviewAt,
+                                        lapses = srs.lapses,
+                                        masteryScore = mastery
+                                    )
                                 }
                                 if (passed) {
                                     db.historyDao().markConceptPassed(title)
@@ -974,6 +1077,33 @@ private fun parseOptionsJson(jsonStr: String?): List<String> {
         list
     } catch (_: Exception) {
         emptyList()
+    }
+}
+
+/**
+ * Picks the topic with the lowest recency-weighted accuracy so fresh concepts
+ * are drawn from the user's weakest areas. Topics without history are treated
+ * as neutral (0.5).
+ */
+private suspend fun resolveWeakestTopic(
+    db: AppDatabase,
+    selectedTopics: List<String>
+): String? {
+    val accuracyByTopic: Map<String, TopicAccuracy> = db.historyDao()
+        .getTopicAccuracy()
+        .associateBy { it.topic }
+
+    val candidateTopics = if (selectedTopics.isNotEmpty()) {
+        selectedTopics
+    } else {
+        db.conceptDao().getDistinctTopics()
+    }
+    if (candidateTopics.isEmpty()) return null
+
+    return candidateTopics.minByOrNull { topic ->
+        val accuracy = accuracyByTopic[topic]
+        if (accuracy == null || accuracy.total == 0) 0.5
+        else accuracy.correct.toDouble() / accuracy.total
     }
 }
 
