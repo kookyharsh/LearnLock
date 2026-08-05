@@ -2,9 +2,15 @@ package com.example.ui.quiz
 
 import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -30,6 +36,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -72,6 +80,16 @@ private fun difficultyColor(difficulty: String?): Color {
     }
 }
 
+data class QuizResult(
+    val passed: Boolean,
+    val correctCount: Int,
+    val total: Int,
+    val masteryBefore: Double?,
+    val masteryAfter: Double?,
+    val nextReviewDays: Int?,
+    val srsStatus: String?
+)
+
 @Composable
 fun UnlockQuizScreen(
     onDismiss: () -> Unit,
@@ -94,6 +112,8 @@ fun UnlockQuizScreen(
     val codeAnswers = remember { mutableStateMapOf<Int, String>() }
 
     var isStarred by remember { mutableStateOf(false) }
+
+    var quizResult by remember { mutableStateOf<QuizResult?>(null) }
 
     val currentTime = remember {
         DateFormat.format("hh:mm a", Date()).toString()
@@ -195,6 +215,7 @@ fun UnlockQuizScreen(
         containerColor = DarkBackground,
         contentWindowInsets = WindowInsets.statusBars
     ) { padding ->
+        Box(modifier = Modifier.fillMaxSize()) {
         if (isLoading) {
             Box(
                 modifier = Modifier
@@ -971,6 +992,9 @@ fun UnlockQuizScreen(
                                     }
                                 }
 
+                                var masteryAfter: Double? = null
+                                var reviewInterval: Int? = null
+                                var reviewStatus: String? = null
                                 val concept = currentConcept
                                 if (concept != null) {
                                     db.conceptDao().markConceptUsed(concept.id)
@@ -1003,13 +1027,27 @@ fun UnlockQuizScreen(
                                         lapses = srs.lapses,
                                         masteryScore = mastery
                                     )
+                                    masteryAfter = mastery
+                                    reviewInterval = srs.intervalDays
+                                    reviewStatus = AdaptiveScheduler.statusOf(
+                                        srs.repetitions,
+                                        srs.intervalDays,
+                                        srs.nextReviewAt
+                                    )
                                 }
                                 if (passed) {
                                     db.historyDao().markConceptPassed(title)
                                 }
 
-                                // Immediately unlock phone and close screen regardless of pass/fail
-                                onDismiss()
+                                quizResult = QuizResult(
+                                    passed = passed,
+                                    correctCount = correctCount,
+                                    total = questionsList.size,
+                                    masteryBefore = concept?.masteryScore,
+                                    masteryAfter = masteryAfter,
+                                    nextReviewDays = reviewInterval,
+                                    srsStatus = reviewStatus
+                                )
                             }
                         },
                         enabled = isCurrentAnswered,
@@ -1039,6 +1077,197 @@ fun UnlockQuizScreen(
                 }
 
                 Spacer(modifier = Modifier.height(24.dp))
+            }
+        }
+            quizResult?.let { result ->
+                QuizResultSheet(result = result, onUnlock = onDismiss)
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuizResultSheet(result: QuizResult, onUnlock: () -> Unit) {
+    val accent = if (result.passed) SuccessGreen else ErrorRed
+    val scale = remember { Animatable(0.82f) }
+    val sheetAlpha = remember { Animatable(0f) }
+    val scrimAlpha = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        scrimAlpha.animateTo(1f, animationSpec = tween(180))
+        sheetAlpha.animateTo(1f, animationSpec = tween(160))
+        scale.animateTo(1f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+    }
+    val masteryAnim = animateFloatAsState(
+        targetValue = (result.masteryAfter ?: 0.0).toFloat(),
+        animationSpec = tween(700, delayMillis = 250)
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.7f * scrimAlpha.value))
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) {},
+        contentAlignment = Alignment.Center
+    ) {
+        Surface(
+            shape = RoundedCornerShape(28.dp),
+            color = DarkSurface,
+            border = CardDefaults.outlinedCardBorder().copy(
+                brush = SolidColor(accent.copy(alpha = 0.55f))
+            ),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 24.dp)
+                .graphicsLayer {
+                    scaleX = scale.value
+                    scaleY = scale.value
+                    alpha = sheetAlpha.value
+                }
+        ) {
+            Column(
+                modifier = Modifier.padding(28.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                        .background(accent.copy(alpha = 0.16f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = if (result.passed) Icons.Default.CheckCircle else Icons.Default.Close,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(38.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = if (result.passed) "QUIZ PASSED!" else "KEEP PRACTICING",
+                    color = accent,
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "${result.correctCount}/${result.total} correct",
+                    color = TextSecondary,
+                    fontSize = 14.sp
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                if (!result.passed) {
+                    Text(
+                        text = "This concept will be queued again tomorrow and kept in History for retry.",
+                        color = TextMuted,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
+                if (result.masteryBefore != null && result.masteryAfter != null) {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = DarkSurfaceVariant,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "MASTERY",
+                                    color = TextMuted,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 1.sp
+                                )
+                                Text(
+                                    text = "${(result.masteryBefore * 100).toInt()}% → ${(result.masteryAfter * 100).toInt()}%",
+                                    color = TextPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+                            LinearProgressIndicator(
+                                progress = { masteryAnim.value },
+                                color = if (result.srsStatus == AdaptiveScheduler.STATUS_MASTERED) GoldStar else ElegantPrimary,
+                                trackColor = DarkBackground,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(CircleShape)
+                            )
+                        }
+                    }
+                }
+                if (result.nextReviewDays != null) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Schedule,
+                            contentDescription = null,
+                            tint = TextMuted,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Next review in ${result.nextReviewDays} day${if (result.nextReviewDays == 1) "" else "s"}",
+                            color = TextSecondary,
+                            fontSize = 13.sp
+                        )
+                        result.srsStatus?.let { status ->
+                            Surface(
+                                shape = RoundedCornerShape(6.dp),
+                                color = if (status == AdaptiveScheduler.STATUS_MASTERED) GoldStar.copy(alpha = 0.15f) else ElegantPrimary.copy(alpha = 0.12f)
+                            ) {
+                                Text(
+                                    text = status,
+                                    color = if (status == AdaptiveScheduler.STATUS_MASTERED) GoldStar else ElegantPrimary,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.8.sp,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(24.dp))
+                Button(
+                    onClick = onUnlock,
+                    shape = CircleShape,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ElegantPrimary,
+                        contentColor = ElegantOnPrimary
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LockOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "UNLOCK DEVICE",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                }
             }
         }
     }
