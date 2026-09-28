@@ -8,7 +8,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -19,28 +18,9 @@ import com.example.data.preferences.AppPreferencesManager
 
 class UnlockOverlayService : Service() {
 
-    private var receiver: UnlockReceiver? = null
-
     override fun onCreate() {
         super.onCreate()
-        registerUnlockReceiver()
         startForegroundNotification()
-    }
-
-    private fun registerUnlockReceiver() {
-        if (receiver == null) {
-            receiver = UnlockReceiver()
-            val filter = IntentFilter().apply {
-                addAction(Intent.ACTION_USER_PRESENT)
-                addAction(Intent.ACTION_SCREEN_OFF)
-            }
-            ContextCompat.registerReceiver(
-                this,
-                receiver,
-                filter,
-                ContextCompat.RECEIVER_NOT_EXPORTED,
-            )
-        }
     }
 
     @SuppressLint("ForegroundServiceType")
@@ -110,13 +90,6 @@ class UnlockOverlayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        receiver?.let {
-            try {
-                unregisterReceiver(it)
-            } catch (_: Exception) {
-                // Ignore if not registered
-            }
-        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
