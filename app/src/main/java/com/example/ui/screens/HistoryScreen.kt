@@ -3,33 +3,64 @@ package com.example.ui.screens
 import android.content.Intent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.collectAsState
 import com.example.data.AppDatabase
 import com.example.data.entity.QuestionHistory
 import com.example.service.UnlockQuizActivity
-import com.example.ui.theme.*
+import com.example.ui.theme.ErrorRed
+import com.example.ui.theme.GoldStar
+import com.example.ui.theme.SuccessGreen
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -48,12 +79,16 @@ fun HistoryScreen(
 
     var selectedTopicFilter by rememberSaveable { mutableStateOf("All") }
     var selectedStatusFilter by rememberSaveable { mutableStateOf("All") }
+    var showClearConfirm by rememberSaveable { mutableStateOf(false) }
 
-    val allHistory by db.historyDao().getRecentlyViewedHistory(10).collectAsState(initial = emptyList())
+    // Load the full history: filters and the destructive clear action must see
+    // the same data the user sees, not an arbitrary 10-item window.
+    val allHistory by db.historyDao().getAllHistory().collectAsState(initial = null)
 
     val filteredHistory = remember(allHistory, selectedTopicFilter, selectedStatusFilter) {
-        allHistory.filter { item ->
-            val matchesTopic = ((selectedTopicFilter == "All") || item.topic.equals(selectedTopicFilter, ignoreCase = true))
+        (allHistory ?: emptyList()).filter { item ->
+            val matchesTopic =
+                selectedTopicFilter == "All" || item.topic.equals(selectedTopicFilter, ignoreCase = true)
             val matchesStatus = when (selectedStatusFilter) {
                 "PASSED" -> item.status == "PASSED"
                 "RETRY_PENDING" -> item.status == "RETRY_PENDING"
@@ -65,233 +100,259 @@ fun HistoryScreen(
     }
 
     val topicsList = remember(allHistory) {
-        val list = mutableListOf("All")
-        val uniqueTopics = allHistory.map { it.topic }.distinct()
-        list.addAll(uniqueTopics)
-        list
+        listOf("All") + (allHistory ?: emptyList()).map { it.topic }.distinct()
+    }
+
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
+
+    if (showClearConfirm) {
+        AlertDialog(
+            onDismissRequest = { showClearConfirm = false },
+            title = { Text("Delete all history?") },
+            text = {
+                Text("This permanently removes all recorded attempts. This cannot be undone.")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showClearConfirm = false
+                        coroutineScope.launch {
+                            db.historyDao().clearAllHistory()
+                            snackbarHostState.showSnackbar("History cleared")
+                        }
+                    },
+                ) {
+                    Text("Delete", color = colors.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearConfirm = false }) {
+                    Text("Cancel")
+                }
+            },
+        )
     }
 
     Column(
         modifier = modifier
             .fillMaxSize()
-            .background(DarkBackground)
-            .padding(16.dp)
+            .background(colors.background),
     ) {
-            // Header
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.History,
-                        contentDescription = null,
-                        tint = ElegantPrimary
-                    )
-                    Text(
-                        text = "Attempt History",
-                        color = TextPrimary,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-
-                if (allHistory.isNotEmpty()) {
-                    IconButton(
-                        onClick = {
-                            coroutineScope.launch {
-                                db.historyDao().clearAllHistory()
-                            }
-                        }
-                    ) {
+        TopAppBar(
+            title = { Text("History") },
+            actions = {
+                if (!allHistory.isNullOrEmpty()) {
+                    IconButton(onClick = { showClearConfirm = true }) {
                         Icon(
                             imageVector = Icons.Default.DeleteSweep,
-                            contentDescription = "Clear History",
-                            tint = TextMuted
+                            contentDescription = "Delete all history",
                         )
                     }
                 }
-            }
+            },
+            windowInsets = WindowInsets(0),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background),
+        )
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Topic Filter Chips
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+        ) {
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                items(topicsList) { topic ->
+                items(topicsList, key = { it }) { topic ->
                     FilterChip(
                         selected = selectedTopicFilter == topic,
                         onClick = { selectedTopicFilter = topic },
-                        label = { Text(topic, fontSize = 12.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = ElegantPrimary,
-                            selectedLabelColor = ElegantOnPrimary,
-                            containerColor = DarkSurface,
-                            labelColor = TextSecondary
-                        )
+                        label = { Text(topic) },
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Status Filter Chips (Horizontal Scrollable for Landscape & Portrait)
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 val statusOptions = listOf("All", "PASSED", "RETRY_PENDING", "STARRED")
-                items(statusOptions) { status ->
+                items(statusOptions, key = { it }) { status ->
                     val displayLabel = when (status) {
                         "PASSED" -> "Passed"
-                        "RETRY_PENDING" -> "Retry Pending"
-                        "STARRED" -> "Starred ⭐"
-                        else -> "All Status"
-                    }
-                    val isSelected = selectedStatusFilter == status
-                    val containerCol = when (status) {
-                        "STARRED" -> if (isSelected) GoldStar.copy(alpha = 0.25f) else DarkSurface
-                        "PASSED" -> if (isSelected) SuccessGreen.copy(alpha = 0.25f) else DarkSurface
-                        "RETRY_PENDING" -> if (isSelected) ErrorRed.copy(alpha = 0.25f) else DarkSurface
-                        else -> if (isSelected) CodeBlue.copy(alpha = 0.25f) else DarkSurface
-                    }
-                    val labelCol = when (status) {
-                        "STARRED" -> if (isSelected) GoldStar else TextSecondary
-                        "PASSED" -> if (isSelected) SuccessGreen else TextSecondary
-                        "RETRY_PENDING" -> if (isSelected) ErrorRed else TextSecondary
-                        else -> if (isSelected) CodeBlue else TextSecondary
+                        "RETRY_PENDING" -> "Retry pending"
+                        "STARRED" -> "Starred"
+                        else -> "All"
                     }
                     FilterChip(
-                        selected = isSelected,
+                        selected = selectedStatusFilter == status,
                         onClick = { selectedStatusFilter = status },
-                        label = { Text(displayLabel, fontSize = 12.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = containerCol,
-                            selectedLabelColor = labelCol,
-                            containerColor = DarkSurface,
-                            labelColor = TextSecondary
-                        )
+                        label = { Text(displayLabel) },
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(10.dp))
 
-            // History List Container with Flex Weight (Adapts to Landscape Rotation)
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .fillMaxWidth()
+                    .fillMaxWidth(),
             ) {
-                if (filteredHistory.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(24.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = if (allHistory.isEmpty()) "No question attempts recorded yet.\nUnlock your phone to start learning!" else "No history matches your selected filters.",
-                            color = TextMuted,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
-                } else {
-                    LazyLazyHistoryList(
-                        historyList = filteredHistory,
-                        onItemClick = { historyItem -> onOpenDetail(historyItem.id) },
-                        onRetryItem = {
-                            val intent = Intent(context, UnlockQuizActivity::class.java).apply {
-                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                when {
+                    allHistory == null -> {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier.fillMaxSize(),
+                        ) {
+                            items(3) {
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = colors.surfaceContainerHigh,
+                                    ),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Spacer(
+                                            modifier = Modifier
+                                                .fillMaxWidth(0.5f)
+                                                .height(14.dp)
+                                                .clip(MaterialTheme.shapes.extraSmall)
+                                                .background(colors.surfaceContainerHighest),
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Spacer(
+                                            modifier = Modifier
+                                                .fillMaxWidth(0.8f)
+                                                .height(14.dp)
+                                                .clip(MaterialTheme.shapes.extraSmall)
+                                                .background(colors.surfaceContainerHighest),
+                                        )
+                                    }
+                                }
                             }
-                            context.startActivity(intent)
-                        },
-                    ) { historyItem ->
-                        val newStar = !historyItem.isStarred
-                        coroutineScope.launch {
-                            db.historyDao().updateStarStatus(historyItem.id, newStar)
-                            db.conceptDao().updateStarStatusByTitle(historyItem.conceptTitle, newStar)
+                        }
+                    }
+
+                    filteredHistory.isEmpty() -> {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(24.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = if (allHistory!!.isEmpty()) {
+                                    "No question attempts recorded yet.\nUnlock your phone to start learning!"
+                                } else {
+                                    "No history matches your selected filters."
+                                },
+                                style = type.bodyMedium,
+                                color = colors.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+                    }
+
+                    else -> {
+                        HistoryList(
+                            historyList = filteredHistory,
+                            onItemClick = { historyItem -> onOpenDetail(historyItem.id) },
+                            onRetryItem = {
+                                val intent = Intent(context, UnlockQuizActivity::class.java).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                context.startActivity(intent)
+                            },
+                        ) { historyItem ->
+                            val newStar = !historyItem.isStarred
+                            coroutineScope.launch {
+                                db.historyDao().updateStarStatus(historyItem.id, newStar)
+                                db.conceptDao().updateStarStatusByTitle(historyItem.conceptTitle, newStar)
+                            }
                         }
                     }
                 }
             }
         }
+    }
 }
 
 @Composable
-private fun LazyLazyHistoryList(
+private fun HistoryList(
     historyList: List<QuestionHistory>,
     onItemClick: (QuestionHistory) -> Unit,
     onRetryItem: (QuestionHistory) -> Unit,
-    onToggleStar: (QuestionHistory) -> Unit
+    onToggleStar: (QuestionHistory) -> Unit,
 ) {
     val sdf = remember { SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()) }
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
 
     LazyColumn(
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier.fillMaxSize(),
     ) {
         items(historyList, key = { it.id }) { item ->
+            val statusColor = if (item.isCorrect) SuccessGreen else ErrorRed
+            val answerSegments = remember(item.id, item.userAnswer) {
+                splitAnswerSegments(item.userAnswer)
+            }
+
             Card(
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(
-                        if (item.isCorrect) SuccessGreen.copy(alpha = 0.3f) else ErrorRed.copy(alpha = 0.3f)
-                    )
-                ),
+                colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerHigh),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .animateItem()
-                    .clickable { onItemClick(item) }
+                    .clip(MaterialTheme.shapes.medium)
+                    .clickable { onItemClick(item) },
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (item.isCorrect) SuccessGreen.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f)
+                        // Status is icon + text, never color alone.
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (item.isCorrect) Icons.Default.CheckCircle else Icons.Default.Warning,
-                                    contentDescription = null,
-                                    tint = if (item.isCorrect) SuccessGreen else ErrorRed,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = if (item.isCorrect) "PASSED" else "RETRY PENDING",
-                                    color = if (item.isCorrect) SuccessGreen else ErrorRed,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
+                            Icon(
+                                imageVector = if (item.isCorrect) {
+                                    Icons.Default.CheckCircle
+                                } else {
+                                    Icons.Default.Warning
+                                },
+                                contentDescription = null,
+                                tint = statusColor,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = if (item.isCorrect) "Passed" else "Retry pending",
+                                style = type.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = statusColor,
+                            )
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(
-                                onClick = { onToggleStar(item) },
-                                modifier = Modifier.size(32.dp)
-                            ) {
+                            IconButton(onClick = { onToggleStar(item) }) {
                                 Icon(
-                                    imageVector = if (item.isStarred) Icons.Default.Star else Icons.Outlined.StarBorder,
-                                    contentDescription = "Star Concept",
-                                    tint = if (item.isStarred) GoldStar else TextMuted
+                                    imageVector = if (item.isStarred) {
+                                        Icons.Default.Star
+                                    } else {
+                                        Icons.Outlined.StarBorder
+                                    },
+                                    contentDescription = if (item.isStarred) {
+                                        "Remove from favorites"
+                                    } else {
+                                        "Add to favorites"
+                                    },
+                                    tint = if (item.isStarred) GoldStar else colors.onSurfaceVariant,
                                 )
                             }
 
@@ -299,8 +360,8 @@ private fun LazyLazyHistoryList(
 
                             Text(
                                 text = sdf.format(Date(item.answeredAt)),
-                                color = TextMuted,
-                                fontSize = 11.sp
+                                style = type.labelSmall,
+                                color = colors.onSurfaceVariant,
                             )
                         }
                     }
@@ -309,50 +370,59 @@ private fun LazyLazyHistoryList(
 
                     Text(
                         text = item.conceptTitle,
-                        color = TextPrimary,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold
+                        style = type.titleSmall,
+                        color = colors.onSurface,
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
                         text = item.questionText,
-                        color = TextSecondary,
-                        fontSize = 13.sp
+                        style = type.bodyMedium,
+                        color = colors.onSurfaceVariant,
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
                     Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = DarkBackground,
-                        modifier = Modifier.fillMaxWidth()
+                        shape = MaterialTheme.shapes.small,
+                        color = colors.surfaceContainerHighest,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text(
-                                text = "Your Answer: ${formatAnswerText(item.userAnswer, item.optionsJson)}",
-                                color = if (item.isCorrect) SuccessGreen else ErrorRed,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold
+                                text = if (answerSegments.size > 1) "Your answers:" else "Your answer:",
+                                style = type.labelSmall,
+                                color = colors.onSurfaceVariant,
                             )
-                            if (!item.isCorrect) {
+                            Spacer(modifier = Modifier.height(2.dp))
+                            answerSegments.forEach { segment ->
+                                Text(
+                                    text = segment,
+                                    style = type.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = statusColor,
+                                )
+                            }
+                            // For single-question attempts the expected answer is
+                            // unambiguous; for multi-question quizzes the correct
+                            // answers live on the detail screen per question.
+                            if (!item.isCorrect && answerSegments.size == 1) {
                                 Text(
                                     text = "Expected: ${formatAnswerText(item.correctAnswer, item.optionsJson)}",
-                                    color = TextSecondary,
-                                    fontSize = 12.sp
+                                    style = type.bodyMedium,
+                                    color = colors.onSurfaceVariant,
                                 )
                             }
                         }
                     }
 
-                    if (item.explanation.isNotBlank()) {
+                    if (item.explanation.isNotBlank() && answerSegments.size == 1) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = item.explanation,
-                            color = TextMuted,
-                            fontSize = 12.sp,
-                            lineHeight = 16.sp
+                            style = type.bodySmall,
+                            color = colors.onSurfaceVariant,
                         )
                     }
 
@@ -360,22 +430,32 @@ private fun LazyLazyHistoryList(
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedButton(
                             onClick = { onRetryItem(item) },
-                            shape = CircleShape,
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = ElegantPrimary),
-                            border = CardDefaults.outlinedCardBorder().copy(
-                                brush = androidx.compose.ui.graphics.SolidColor(ElegantPrimary)
-                            ),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = null,
+                                modifier = Modifier.size(16.dp),
+                            )
                             Spacer(modifier = Modifier.width(6.dp))
-                            Text("Retry Question Now", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            Text("Retry question", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
         }
     }
+}
+
+/** Splits a joined multi-question answer ("Q1: x | Q2: y") into segments. */
+private val answerSegmentPattern = Regex("^Q\\d+:\\s*")
+
+private fun splitAnswerSegments(userAnswer: String): List<String> {
+    val parts = userAnswer.split(" | ")
+    if (parts.size > 1 && parts.all { answerSegmentPattern.containsMatchIn(it) }) {
+        return parts.map { answerSegmentPattern.replace(it, "") }
+    }
+    return listOf(userAnswer)
 }
 
 private fun formatAnswerText(answerRaw: String, optionsJson: String?): String {
