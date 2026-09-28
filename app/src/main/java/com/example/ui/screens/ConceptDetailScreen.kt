@@ -1,8 +1,5 @@
 package com.example.ui.screens
 
-import com.example.ui.quiz.isValidSnippet
-import com.example.ui.quiz.QuizQuestion
-import com.example.ui.quiz.parseQuestionsList
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,29 +10,32 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,31 +43,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.data.entity.QuestionHistory
 import com.example.ui.components.MarkdownView
-import com.example.ui.theme.CodeBlue
-import com.example.ui.theme.DarkBackground
-import com.example.ui.theme.DarkBorder
-import com.example.ui.theme.DarkSurface
-import com.example.ui.theme.ElegantOnPrimary
-import com.example.ui.theme.ElegantOnPrimaryContainer
-import com.example.ui.theme.ElegantPrimary
-import com.example.ui.theme.ElegantPrimaryContainer
+import com.example.ui.quiz.QuizQuestion
+import com.example.ui.quiz.isValidSnippet
+import com.example.ui.quiz.parseQuestionsList
 import com.example.ui.theme.GoldStar
 import com.example.ui.theme.SuccessGreen
-import com.example.ui.theme.TextMuted
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -81,338 +68,207 @@ fun ConceptDetailScreen(
     // shows a stale star toggle.
     var isStarred by remember(item.id, item.isStarred) { mutableStateOf(item.isStarred) }
 
-    Scaffold(
-        containerColor = DarkBackground,
-        // The parent Scaffold already applies system-bar insets once.
-        contentWindowInsets = WindowInsets(0),
-    ) { padding ->
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(horizontal = 16.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            // Header Bar with Back and Star
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onBack,
-                    modifier = Modifier.size(40.dp)
-                ) {
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
+
+    val questionsList: List<QuizQuestion> = remember(item) {
+        parseQuestionsList(
+            questionsJson = item.questionsJson,
+            fallbackQuestionText = item.questionText,
+            fallbackQuestionType = item.questionType,
+            fallbackOptionsJson = item.optionsJson,
+            fallbackCodePrefix = item.codeSnippetPrefix,
+            fallbackCorrectAnswer = item.correctAnswer,
+            fallbackExplanation = item.explanation,
+        )
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(colors.background),
+    ) {
+        TopAppBar(
+            title = { Text(item.topic, maxLines = 1) },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
                     Icon(
                         imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                         contentDescription = "Back",
-                        tint = TextPrimary
                     )
                 }
-                Text(
-                        text = item.topic,
-                        color = ElegantOnPrimaryContainer,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-
-
+            },
+            actions = {
                 IconButton(
                     onClick = {
                         isStarred = !isStarred
                         onStarToggled(isStarred)
                     },
-                    modifier = Modifier.size(40.dp)
                 ) {
                     Icon(
                         imageVector = if (isStarred) Icons.Default.Star else Icons.Outlined.StarBorder,
-                        contentDescription = "Star Concept",
-                        tint = if (isStarred) GoldStar else TextMuted
+                        contentDescription = if (isStarred) {
+                            "Remove from favorites"
+                        } else {
+                            "Add to favorites"
+                        },
+                        tint = if (isStarred) GoldStar else colors.onSurfaceVariant,
                     )
                 }
-            }
+            },
+            windowInsets = WindowInsets(0),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background),
+        )
 
-            Spacer(modifier = Modifier.height(8.dp))
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Unboxed Reader Container (Clean Article Layout)
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // Topic & AI Badge Bar
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Surface(
+                    shape = CircleShape,
+                    color = colors.primary,
+                    modifier = Modifier.size(28.dp),
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(CircleShape)
-                                .background(ElegantPrimary),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                tint = ElegantOnPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                        Text(
-                            text = "AI CONCEPT SUMMARY",
-                            color = ElegantPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.2.sp
-                        )
-                    }
-
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = DarkSurface
-                    ) {
-                        Text(
-                            text = item.topic.uppercase(),
-                            color = TextMuted,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = null,
+                            tint = colors.onPrimary,
+                            modifier = Modifier.size(16.dp),
                         )
                     }
                 }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
                 Text(
-                    text = item.conceptTitle,
-                    color = TextPrimary,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 32.sp
+                    text = "AI concept summary",
+                    style = type.labelSmall,
+                    color = colors.primary,
                 )
+            }
 
-                Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(14.dp))
 
-                // Article Summary Body (Rich Markdown Format)
-                MarkdownView(markdownText = item.conceptSummary ?: item.explanation)
+            Text(
+                text = item.conceptTitle,
+                style = type.headlineSmall,
+                color = colors.onSurface,
+                modifier = Modifier.semantics { heading() },
+            )
 
-                if (item.codeSnippetPrefix.isValidSnippet()) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = DarkSurface,
-                        border = CardDefaults.outlinedCardBorder().copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                        ),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = item.codeSnippetPrefix!!.replace("\\n", "\n"),
-                            color = CodeBlue,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
-                            modifier = Modifier.padding(14.dp)
-                        )
-                    }
-                }
+            Spacer(modifier = Modifier.height(14.dp))
 
-                // Divider and Concept Quizzes Header
-                Spacer(modifier = Modifier.height(28.dp))
-                HorizontalDivider(color = DarkBorder, thickness = 1.dp)
-                Spacer(modifier = Modifier.height(20.dp))
+            MarkdownView(markdownText = item.conceptSummary ?: item.explanation)
 
-                val questionsList: List<QuizQuestion> = remember(item) {
-                    parseQuestionsList(
-                        questionsJson = item.questionsJson,
-                        fallbackQuestionText = item.questionText,
-                        fallbackQuestionType = item.questionType,
-                        fallbackOptionsJson = item.optionsJson,
-                        fallbackCodePrefix = item.codeSnippetPrefix,
-                        fallbackCorrectAnswer = item.correctAnswer,
-                        fallbackExplanation = item.explanation
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Surface(
-                        shape = RoundedCornerShape(8.dp),
-                        color = ElegantPrimary.copy(alpha = 0.15f)
-                    ) {
-                        Text(
-                            text = "KNOWLEDGE CHECK",
-                            color = ElegantPrimary,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.2.sp,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                        )
-                    }
-                    Text(
-                        text = "• ${questionsList.size} Questions",
-                        color = TextMuted,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-
+            if (item.codeSnippetPrefix.isValidSnippet()) {
                 Spacer(modifier = Modifier.height(16.dp))
+                Surface(
+                    shape = MaterialTheme.shapes.medium,
+                    color = colors.surfaceContainerHighest,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = item.codeSnippetPrefix!!.replace("\\n", "\n"),
+                        style = type.bodyMedium,
+                        fontFamily = FontFamily.Monospace,
+                        color = colors.primary,
+                        modifier = Modifier.padding(14.dp),
+                    )
+                }
+            }
 
-                questionsList.forEachIndexed { idx, q ->
-                    Card(
-                        shape = RoundedCornerShape(20.dp),
-                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                        border = CardDefaults.outlinedCardBorder().copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(bottom = 16.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(18.dp)) {
-                            // Question Header
-                            Text(
-                                text = "Q${idx + 1}. ${q.questionText}",
-                                color = TextPrimary,
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold,
-                                lineHeight = 22.sp
-                            )
+            Spacer(modifier = Modifier.height(28.dp))
+            HorizontalDivider()
+            Spacer(modifier = Modifier.height(20.dp))
 
-                            if (q.optionsList.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(14.dp))
-                                q.optionsList.forEachIndexed { optIdx, optText ->
-                                    val isCorrect = checkIsCorrect(optIdx, optText, q.correctAnswer)
-                                    val isUserSel = checkIsUserSelected(optIdx, optText, item.userAnswer)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Surface(
+                    shape = MaterialTheme.shapes.small,
+                    color = colors.primaryContainer,
+                ) {
+                    Text(
+                        text = "Knowledge check",
+                        style = type.labelSmall,
+                        color = colors.onPrimaryContainer,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    )
+                }
+                Text(
+                    text = "• ${questionsList.size} questions",
+                    style = type.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                )
+            }
 
-                                    val optionBorder = when {
-                                        isCorrect -> SuccessGreen
-                                        isUserSel -> ElegantPrimary
-                                        else -> DarkBorder
-                                    }
-                                    val optionBg = when {
-                                        isCorrect -> SuccessGreen.copy(alpha = 0.12f)
-                                        isUserSel -> ElegantPrimaryContainer.copy(alpha = 0.2f)
-                                        else -> DarkBackground
-                                    }
+            Spacer(modifier = Modifier.height(16.dp))
 
-                                    Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = optionBg,
-                                        border = CardDefaults.outlinedCardBorder().copy(
-                                            brush = androidx.compose.ui.graphics.SolidColor(optionBorder)
-                                        ),
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(bottom = 8.dp)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.SpaceBetween
-                                        ) {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                modifier = Modifier.weight(1f)
-                                            ) {
-                                                val letterLabel = when (optIdx) { 0 -> "A"; 1 -> "B"; 2 -> "C"; 3 -> "D"; else -> (optIdx + 1).toString() }
-                                                Surface(
-                                                    shape = CircleShape,
-                                                    color = if (isCorrect) SuccessGreen else if (isUserSel) ElegantPrimary else DarkSurface,
-                                                    modifier = Modifier.size(24.dp)
-                                                ) {
-                                                    Box(contentAlignment = Alignment.Center) {
-                                                        Text(
-                                                            text = letterLabel,
-                                                            color = if (isCorrect || isUserSel) ElegantOnPrimary else TextMuted,
-                                                            fontSize = 11.sp,
-                                                            fontWeight = FontWeight.Bold
-                                                        )
-                                                    }
-                                                }
-                                                Spacer(modifier = Modifier.width(10.dp))
-                                                Text(
-                                                    text = optText,
-                                                    color = if (isCorrect || isUserSel) TextPrimary else TextSecondary,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = if (isCorrect || isUserSel) FontWeight.SemiBold else FontWeight.Normal
-                                                )
-                                            }
+            if (questionsList.isEmpty()) {
+                Text(
+                    text = "No questions were recorded for this concept yet.",
+                    style = type.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                )
+            }
 
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                if (isUserSel) {
-                                                    Surface(
-                                                        shape = RoundedCornerShape(6.dp),
-                                                        color = ElegantPrimary.copy(alpha = 0.2f)
-                                                    ) {
-                                                        Text(
-                                                            text = "Your Answer",
-                                                            color = ElegantPrimary,
-                                                            fontSize = 10.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
-                                                if (isCorrect) {
-                                                    Surface(
-                                                        shape = RoundedCornerShape(6.dp),
-                                                        color = SuccessGreen.copy(alpha = 0.2f)
-                                                    ) {
-                                                        Text(
-                                                            text = "Correct",
-                                                            color = SuccessGreen,
-                                                            fontSize = 10.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
+            questionsList.forEachIndexed { idx, q ->
+                val userSegment = userAnswerForQuestion(item.userAnswer, idx, questionsList.size)
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerHigh),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp),
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Text(
+                            text = "Q${idx + 1}. ${q.questionText}",
+                            style = type.titleSmall,
+                            color = colors.onSurface,
+                        )
+
+                        if (q.optionsList.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            q.optionsList.forEachIndexed { optIdx, optText ->
+                                val isCorrect = checkIsCorrect(optIdx, optText, q.correctAnswer)
+                                val isUserSel = checkIsUserSelected(optIdx, optText, userSegment)
+                                OptionRow(
+                                    optIdx = optIdx,
+                                    optText = optText,
+                                    isCorrect = isCorrect,
+                                    isUserSelected = isUserSel,
+                                )
+                                if (optIdx < q.optionsList.lastIndex) {
+                                    Spacer(modifier = Modifier.height(8.dp))
                                 }
                             }
+                        }
 
-                            if (q.explanation.isNotBlank()) {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Surface(
-                                    shape = RoundedCornerShape(12.dp),
-                                    color = DarkBackground,
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text(
-                                            text = "EXPLANATION",
-                                            color = TextMuted,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 1.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = q.explanation,
-                                            color = TextSecondary,
-                                            fontSize = 13.sp,
-                                            lineHeight = 19.sp
-                                        )
-                                    }
+                        if (q.explanation.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                shape = MaterialTheme.shapes.small,
+                                color = colors.surfaceContainerHighest,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = "Explanation",
+                                        style = type.labelSmall,
+                                        color = colors.onSurfaceVariant,
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = q.explanation,
+                                        style = type.bodySmall,
+                                        color = colors.onSurfaceVariant,
+                                    )
                                 }
                             }
                         }
@@ -420,34 +276,132 @@ fun ConceptDetailScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             OutlinedButton(
                 onClick = onBack,
-                shape = CircleShape,
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
-                border = CardDefaults.outlinedCardBorder().copy(
-                    brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(52.dp)
+                    .heightIn(min = 48.dp),
             ) {
-                Text("Return to App", fontWeight = FontWeight.Bold)
+                Text("Return to app", fontWeight = FontWeight.Bold)
             }
-
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
 
+@Composable
+private fun OptionRow(
+    optIdx: Int,
+    optText: String,
+    isCorrect: Boolean,
+    isUserSelected: Boolean,
+) {
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
+
+    // State is tonal background + icon + label: no decorative border needed,
+    // and plain options need no container at all.
+    val container = when {
+        isCorrect -> SuccessGreen.copy(alpha = 0.12f)
+        isUserSelected -> colors.primaryContainer.copy(alpha = 0.4f)
+        else -> null
+    }
+    val letterLabel = when (optIdx) {
+        0 -> "A"
+        1 -> "B"
+        2 -> "C"
+        3 -> "D"
+        else -> (optIdx + 1).toString()
+    }
+
+    val content: @Composable () -> Unit = {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = when {
+                    isCorrect -> SuccessGreen
+                    isUserSelected -> colors.primary
+                    else -> colors.surfaceContainerHighest
+                },
+                modifier = Modifier.size(24.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        text = letterLabel,
+                        style = type.labelSmall,
+                        color = when {
+                            isCorrect -> colors.onPrimary
+                            isUserSelected -> colors.onPrimary
+                            else -> colors.onSurfaceVariant
+                        },
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = optText,
+                style = type.bodyMedium,
+                fontWeight = if (isCorrect || isUserSelected) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (isCorrect || isUserSelected) colors.onSurface else colors.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            if (isCorrect) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.Default.CheckCircle,
+                    contentDescription = "Correct answer",
+                    tint = SuccessGreen,
+                    modifier = Modifier.size(18.dp),
+                )
+            } else if (isUserSelected) {
+                Spacer(modifier = Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = "Your answer",
+                    tint = colors.primary,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+    }
+
+    if (container != null) {
+        Surface(
+            shape = MaterialTheme.shapes.small,
+            color = container,
+            modifier = Modifier.fillMaxWidth(),
+            content = content,
+        )
+    } else {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            content()
+        }
+    }
+}
+
+/**
+ * Multi-question attempts store answers joined as "Q1: x | Q2: y"; resolve the
+ * segment for one question so badges never compare against the joined string.
+ */
+private fun userAnswerForQuestion(userAnswer: String, index: Int, total: Int): String {
+    if (total <= 1) return userAnswer
+    val parts = userAnswer.split(" | ")
+    if (parts.size == total) {
+        return Regex("^Q${index + 1}:\\s*").replace(parts[index], "")
+    }
+    return userAnswer
+}
 
 private fun checkIsCorrect(optIndex: Int, optionText: String, correctAnswer: String): Boolean {
     val trimmed = correctAnswer.trim()
     val letter = when (optIndex) { 0 -> "A"; 1 -> "B"; 2 -> "C"; 3 -> "D"; else -> "" }
     return trimmed.equals(letter, ignoreCase = true) ||
-            trimmed == optIndex.toString() ||
-            trimmed.equals(optionText.trim(), ignoreCase = true)
+        trimmed == optIndex.toString() ||
+        trimmed.equals(optionText.trim(), ignoreCase = true)
 }
 
 private fun checkIsUserSelected(optIndex: Int, optionText: String, userAnswer: String?): Boolean {
@@ -455,6 +409,6 @@ private fun checkIsUserSelected(optIndex: Int, optionText: String, userAnswer: S
     val trimmed = userAnswer.trim()
     val letter = when (optIndex) { 0 -> "A"; 1 -> "B"; 2 -> "C"; 3 -> "D"; else -> "" }
     return trimmed.equals(letter, ignoreCase = true) ||
-            trimmed == optIndex.toString() ||
-            trimmed.equals(optionText.trim(), ignoreCase = true)
+        trimmed == optIndex.toString() ||
+        trimmed.equals(optionText.trim(), ignoreCase = true)
 }

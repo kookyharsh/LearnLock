@@ -2,13 +2,17 @@ package com.example.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -17,44 +21,51 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.example.ui.theme.*
 
 @Composable
 fun MarkdownView(
     markdownText: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
 ) {
-    val blocks = parseMarkdownBlocks(markdownText)
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
+    val blocks = remember(markdownText) { parseMarkdownBlocks(markdownText) }
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         blocks.forEach { block ->
             when (block) {
                 is MarkdownBlock.Header -> {
-                    val (fontSize, lineHeight) = when (block.level) {
-                        1 -> 22.sp to 28.sp
-                        2 -> 19.sp to 25.sp
-                        else -> 17.sp to 22.sp
+                    val style = when (block.level) {
+                        1 -> type.headlineSmall
+                        2 -> type.titleLarge
+                        else -> type.titleMedium
                     }
                     Text(
-                        text = parseInlineMarkdown(block.content),
-                        color = TextPrimary,
-                        fontSize = fontSize,
-                        fontWeight = FontWeight.Bold,
-                        lineHeight = lineHeight,
-                        modifier = Modifier.padding(top = 4.dp)
+                        text = parseInlineMarkdown(
+                            block.content,
+                            emphasisColor = colors.onSurface,
+                            codeColor = colors.primary,
+                        ),
+                        style = style,
+                        color = colors.onSurface,
+                        modifier = Modifier
+                            .padding(top = 4.dp)
+                            .semantics { heading() },
                     )
                 }
 
                 is MarkdownBlock.Paragraph -> {
                     Text(
-                        text = parseInlineMarkdown(block.content),
-                        color = TextPrimary.copy(alpha = 0.9f),
-                        fontSize = 15.sp,
-                        lineHeight = 23.sp
+                        text = parseInlineMarkdown(
+                            block.content,
+                            emphasisColor = colors.onSurface,
+                            codeColor = colors.primary,
+                        ),
+                        style = type.bodyMedium,
+                        color = colors.onSurface,
                     )
                 }
 
@@ -63,21 +74,24 @@ fun MarkdownView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 6.dp),
-                        verticalAlignment = Alignment.Top
+                        verticalAlignment = Alignment.Top,
                     ) {
                         Text(
                             text = "• ",
-                            color = ElegantPrimary,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
+                            style = type.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.primary,
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = parseInlineMarkdown(block.content),
-                            color = TextPrimary.copy(alpha = 0.9f),
-                            fontSize = 15.sp,
-                            lineHeight = 23.sp,
-                            modifier = Modifier.weight(1f)
+                            text = parseInlineMarkdown(
+                                block.content,
+                                emphasisColor = colors.onSurface,
+                                codeColor = colors.primary,
+                            ),
+                            style = type.bodyMedium,
+                            color = colors.onSurface,
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
@@ -87,49 +101,49 @@ fun MarkdownView(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(start = 6.dp),
-                        verticalAlignment = Alignment.Top
+                        verticalAlignment = Alignment.Top,
                     ) {
                         Text(
                             text = "${block.number}. ",
-                            color = ElegantPrimary,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold
+                            style = type.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.primary,
                         )
                         Spacer(modifier = Modifier.width(4.dp))
                         Text(
-                            text = parseInlineMarkdown(block.content),
-                            color = TextPrimary.copy(alpha = 0.9f),
-                            fontSize = 15.sp,
-                            lineHeight = 23.sp,
-                            modifier = Modifier.weight(1f)
+                            text = parseInlineMarkdown(
+                                block.content,
+                                emphasisColor = colors.onSurface,
+                                codeColor = colors.primary,
+                            ),
+                            style = type.bodyMedium,
+                            color = colors.onSurface,
+                            modifier = Modifier.weight(1f),
                         )
                     }
                 }
 
                 is MarkdownBlock.CodeBlock -> {
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = DarkSurface,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-                        modifier = Modifier.fillMaxWidth()
+                        shape = MaterialTheme.shapes.medium,
+                        color = colors.surfaceContainerHighest,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             if (block.language.isNotBlank()) {
                                 Text(
                                     text = block.language.uppercase(),
-                                    color = TextMuted,
-                                    fontSize = 10.sp,
+                                    style = type.labelSmall,
                                     fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold
+                                    color = colors.onSurfaceVariant,
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                             }
                             Text(
                                 text = block.code,
-                                color = CodeBlue,
+                                style = type.bodyMedium,
                                 fontFamily = FontFamily.Monospace,
-                                fontSize = 13.sp,
-                                lineHeight = 19.sp
+                                color = colors.primary,
                             )
                         }
                     }
@@ -139,27 +153,30 @@ fun MarkdownView(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 2.dp)
+                            .padding(vertical = 2.dp),
                     ) {
                         Box(
                             modifier = Modifier
                                 .width(3.dp)
                                 .height(24.dp)
-                                .background(ElegantPrimary, RoundedCornerShape(2.dp))
+                                .background(colors.primary, MaterialTheme.shapes.extraSmall),
                         )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = parseInlineMarkdown(block.content),
-                            color = TextSecondary,
+                            text = parseInlineMarkdown(
+                                block.content,
+                                emphasisColor = colors.onSurface,
+                                codeColor = colors.primary,
+                            ),
+                            style = type.bodyMedium,
                             fontStyle = FontStyle.Italic,
-                            fontSize = 14.sp,
-                            lineHeight = 21.sp
+                            color = colors.onSurfaceVariant,
                         )
                     }
                 }
 
                 is MarkdownBlock.Divider -> {
-                    HorizontalDivider(color = DarkBorder, thickness = 1.dp)
+                    HorizontalDivider()
                 }
             }
         }
@@ -243,35 +260,35 @@ fun parseMarkdownBlocks(text: String): List<MarkdownBlock> {
     return blocks
 }
 
-fun parseInlineMarkdown(text: String): AnnotatedString {
+fun parseInlineMarkdown(text: String, emphasisColor: Color, codeColor: Color): AnnotatedString {
     return buildAnnotatedString {
         var index = 0
         while (index < text.length) {
             when {
                 text.startsWith("**", index) && text.indexOf("**", index + 2) != -1 -> {
                     val end = text.indexOf("**", index + 2)
-                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = TextPrimary))
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = emphasisColor))
                     append(text.substring(index + 2, end))
                     pop()
                     index = end + 2
                 }
                 text.startsWith("__", index) && text.indexOf("__", index + 2) != -1 -> {
                     val end = text.indexOf("__", index + 2)
-                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = TextPrimary))
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold, color = emphasisColor))
                     append(text.substring(index + 2, end))
                     pop()
                     index = end + 2
                 }
                 text.startsWith("<u>", index) && text.indexOf("</u>", index + 3) != -1 -> {
                     val end = text.indexOf("</u>", index + 3)
-                    pushStyle(SpanStyle(textDecoration = TextDecoration.Underline, color = TextPrimary))
+                    pushStyle(SpanStyle(textDecoration = TextDecoration.Underline, color = emphasisColor))
                     append(text.substring(index + 3, end))
                     pop()
                     index = end + 4
                 }
                 text.startsWith("`", index) && text.indexOf("`", index + 1) != -1 -> {
                     val end = text.indexOf("`", index + 1)
-                    pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, color = CodeBlue))
+                    pushStyle(SpanStyle(fontFamily = FontFamily.Monospace, color = codeColor))
                     append(text.substring(index + 1, end))
                     pop()
                     index = end + 1
