@@ -19,6 +19,7 @@ import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -38,13 +39,15 @@ import java.util.Locale
 @Composable
 fun HistoryScreen(
     modifier: Modifier = Modifier,
+    snackbarHostState: SnackbarHostState,
+    onOpenDetail: (historyId: Long) -> Unit,
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val db = remember { AppDatabase.getDatabase(context) }
 
-    var selectedTopicFilter by remember { mutableStateOf("All") }
-    var selectedStatusFilter by remember { mutableStateOf("All") }
+    var selectedTopicFilter by rememberSaveable { mutableStateOf("All") }
+    var selectedStatusFilter by rememberSaveable { mutableStateOf("All") }
 
     val allHistory by db.historyDao().getRecentlyViewedHistory(10).collectAsState(initial = emptyList())
 
@@ -68,28 +71,12 @@ fun HistoryScreen(
         list
     }
 
-    var selectedDetailConcept by remember { mutableStateOf<QuestionHistory?>(null) }
-
-    if (selectedDetailConcept != null) {
-        ConceptDetailScreen(
-            item = selectedDetailConcept!!,
-            onBack = { selectedDetailConcept = null },
-            onStarToggled = { newStarred ->
-                val updated = selectedDetailConcept!!.copy(isStarred = newStarred)
-                selectedDetailConcept = updated
-                coroutineScope.launch {
-                    db.historyDao().updateStarStatus(updated.id, newStarred)
-                    db.conceptDao().updateStarStatusByTitle(updated.conceptTitle, newStarred)
-                }
-            }
-        )
-    } else {
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .background(DarkBackground)
-                .padding(16.dp)
-        ) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+            .padding(16.dp)
+    ) {
             // Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -220,7 +207,7 @@ fun HistoryScreen(
                 } else {
                     LazyLazyHistoryList(
                         historyList = filteredHistory,
-                        onItemClick = { historyItem -> selectedDetailConcept = historyItem },
+                        onItemClick = { historyItem -> onOpenDetail(historyItem.id) },
                         onRetryItem = {
                             val intent = Intent(context, UnlockQuizActivity::class.java).apply {
                                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -237,7 +224,6 @@ fun HistoryScreen(
                 }
             }
         }
-    }
 }
 
 @Composable

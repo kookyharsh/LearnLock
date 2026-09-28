@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -78,11 +77,14 @@ fun ConceptDetailScreen(
     onStarToggled: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var isStarred by remember { mutableStateOf(item.isStarred) }
+    // Keyed on the item so navigating from one concept to another never
+    // shows a stale star toggle.
+    var isStarred by remember(item.id, item.isStarred) { mutableStateOf(item.isStarred) }
 
     Scaffold(
         containerColor = DarkBackground,
-        contentWindowInsets = WindowInsets.statusBars
+        // The parent Scaffold already applies system-bar insets once.
+        contentWindowInsets = WindowInsets(0),
     ) { padding ->
         Column(
             modifier = modifier

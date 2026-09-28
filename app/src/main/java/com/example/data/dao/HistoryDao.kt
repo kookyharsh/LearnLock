@@ -35,6 +35,9 @@ interface HistoryDao {
     @Query("SELECT * FROM question_history ORDER BY answeredAt DESC LIMIT :limit")
     fun getRecentlyViewedHistory(limit: Int = 10): Flow<List<QuestionHistory>>
 
+    @Query("SELECT * FROM question_history WHERE id = :id")
+    fun getHistoryById(id: Long): Flow<QuestionHistory?>
+
     @Query("SELECT * FROM question_history WHERE isStarred = 1 ORDER BY answeredAt DESC")
     fun getStarredHistory(): Flow<List<QuestionHistory>>
 

@@ -47,6 +47,7 @@ import androidx.compose.material.icons.filled.CompassCalibration
 @Composable
 fun SettingsScreen(
     modifier: Modifier = Modifier,
+    snackbarHostState: SnackbarHostState,
     onStartTour: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current

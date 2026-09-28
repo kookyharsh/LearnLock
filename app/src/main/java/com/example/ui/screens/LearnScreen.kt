@@ -22,7 +22,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.AppDatabase
-import com.example.data.entity.QuestionHistory
 import com.example.data.preferences.AppPreferencesManager
 import com.example.service.GeminiConceptGenerator
 import com.example.ui.theme.*
@@ -31,6 +30,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun LearnScreen(
     modifier: Modifier = Modifier,
+    snackbarHostState: SnackbarHostState,
+    onOpenDetail: (historyId: Long) -> Unit,
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
@@ -40,7 +41,6 @@ fun LearnScreen(
     var isServiceEnabled by remember { mutableStateOf(prefsManager.isUnlockServiceEnabled()) }
     var isGeneratingConcepts by remember { mutableStateOf(value = false) }
     val recentHistory by db.historyDao().getRecentlyViewedHistory(10).collectAsState(initial = emptyList())
-    var selectedDetailConcept by remember { mutableStateOf<QuestionHistory?>(null) }
 
     val windowStartRaw = prefsManager.getLearningWindowStart()
     val windowEndRaw = prefsManager.getLearningWindowEnd()
@@ -89,28 +89,14 @@ fun LearnScreen(
         }
     }
 
-    if (selectedDetailConcept != null) {
-        ConceptDetailScreen(
-            item = selectedDetailConcept!!,
-            onBack = { selectedDetailConcept = null },
-            onStarToggled = { newStarred ->
-                val updated = selectedDetailConcept!!.copy(isStarred = newStarred)
-                selectedDetailConcept = updated
-                coroutineScope.launch {
-                    db.historyDao().updateStarStatus(updated.id, newStarred)
-                    db.conceptDao().updateStarStatusByTitle(updated.conceptTitle, newStarred)
-                }
-            }
-        )
-    } else {
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .background(DarkBackground)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .background(DarkBackground)
+            .padding(16.dp)
+            .verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
             // Hero Header Card
             Card(
                 shape = RoundedCornerShape(28.dp),
@@ -300,7 +286,7 @@ fun LearnScreen(
                         ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { selectedDetailConcept = historyItem }
+                            .clickable { onOpenDetail(historyItem.id) }
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Row(
@@ -361,5 +347,4 @@ fun LearnScreen(
                 }
             }
         }
-    }
 }

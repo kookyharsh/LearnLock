@@ -4,6 +4,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,7 +22,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.layout.LayoutCoordinates
-import androidx.compose.ui.layout.positionInWindow
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
@@ -98,20 +99,29 @@ fun CoachmarkOverlay(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .clickable(enabled = false) {} // block click propagation
+            // Consume all pointer input so destinations behind the tour
+            // cannot be tapped mid-tour. Buttons inside the overlay still
+            // receive events first because they are drawn on top.
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            ),
     ) {
 
         Canvas(modifier = Modifier.fillMaxSize()) {
             val canvasWidth = size.width
             val canvasHeight = size.height
-            
+
             val path = Path().apply {
                 addRect(Rect(0f, 0f, canvasWidth, canvasHeight))
             }
-            
+
             val spotlightPath = Path()
             if (targetCoordinates != null && targetCoordinates.isAttached) {
-                val position = targetCoordinates.positionInWindow()
+                // positionInRoot: the overlay fills the window root, so the
+                // spotlight lines up exactly with the measured target.
+                val position = targetCoordinates.positionInRoot()
                 val targetSize = targetCoordinates.size
                 
                 // Add a slightly larger circle spotlight around target item
@@ -142,7 +152,7 @@ fun CoachmarkOverlay(
         
         // Render target-relative bubble
         if (targetCoordinates != null && targetCoordinates.isAttached) {
-            val position = targetCoordinates.positionInWindow()
+            val position = targetCoordinates.positionInRoot()
             val targetSize = targetCoordinates.size
             
             // Layout position coordinates
