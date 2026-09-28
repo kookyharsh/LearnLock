@@ -1,5 +1,20 @@
 import com.google.gms.googleservices.GoogleServicesPlugin.MissingGoogleServicesStrategy
 
+fun versionCodeFromTag(versionName: String): Int {
+  val parts = versionName.split(".").mapNotNull { it.toIntOrNull() }
+  return when {
+    parts.isEmpty() -> 1
+    parts.size == 1 -> parts[0] * 10000
+    parts.size == 2 -> parts[0] * 10000 + parts[1] * 100
+    else -> parts[0] * 10000 + parts[1] * 100 + parts[2]
+  }
+}
+
+val tagVersion: String? = System.getenv("GIT_TAG_VERSION")
+  ?.trim()
+  ?.removePrefix("v")
+  ?.takeIf { it.isNotBlank() }
+
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.kotlin.compose)
@@ -17,8 +32,8 @@ android {
     applicationId = "com.example"
     minSdk = 24
     targetSdk = 36
-    versionCode = 1
-    versionName = "1.0"
+    versionCode = tagVersion?.let { runCatching { versionCodeFromTag(it) }.getOrDefault(1) } ?: 1
+    versionName = tagVersion ?: "1.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -28,7 +43,7 @@ android {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
       storeFile = file(keystorePath)
       storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
+      keyAlias = System.getenv("KEY_ALIAS")?.trim()?.takeIf { it.isNotBlank() } ?: "upload"
       keyPassword = System.getenv("KEY_PASSWORD")
     }
     create("debugConfig") {
