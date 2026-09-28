@@ -99,6 +99,11 @@ private fun SnoozeContent(onClose: () -> Unit) {
     val applyAction: (Boolean, Long) -> Unit = { serviceEnabled, disabledUntilMillis ->
         prefsManager.setUnlockServiceEnabled(serviceEnabled)
         prefsManager.setTutorDisabledUntil(disabledUntilMillis)
+        if (serviceEnabled) {
+            UnlockOverlayService.start(context)
+        } else {
+            UnlockOverlayService.stop(context)
+        }
         TutorTileService.refresh(context)
         onClose()
     }

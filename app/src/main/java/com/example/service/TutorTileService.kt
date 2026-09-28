@@ -3,6 +3,7 @@ package com.example.service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
 import com.example.R
@@ -52,16 +53,22 @@ class TutorTileService : TileService() {
 
         if (TutorState.isActive(enabled, disabledUntil, now)) {
             tile.state = Tile.STATE_ACTIVE
-            tile.subtitle = getString(R.string.tile_subtitle_on)
+            setTileSubtitle(tile, getString(R.string.tile_subtitle_on))
         } else if (TutorState.isPaused(enabled, disabledUntil, now)) {
             tile.state = Tile.STATE_INACTIVE
             val time = SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(disabledUntil))
-            tile.subtitle = getString(R.string.tile_subtitle_paused_until, time)
+            setTileSubtitle(tile, getString(R.string.tile_subtitle_paused_until, time))
         } else {
             tile.state = Tile.STATE_INACTIVE
-            tile.subtitle = getString(R.string.tile_subtitle_off)
+            setTileSubtitle(tile, getString(R.string.tile_subtitle_off))
         }
         tile.updateTile()
+    }
+
+    private fun setTileSubtitle(tile: Tile, subtitle: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            tile.subtitle = subtitle
+        }
     }
 
     companion object {

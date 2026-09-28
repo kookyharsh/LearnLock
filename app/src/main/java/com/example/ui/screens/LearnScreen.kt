@@ -56,6 +56,8 @@ import androidx.compose.ui.unit.dp
 import com.example.data.AppDatabase
 import com.example.data.preferences.AppPreferencesManager
 import com.example.service.GeminiConceptGenerator
+import com.example.service.UnlockOverlayService
+import com.example.service.TutorTileService
 import com.example.ui.theme.GoldStar
 import kotlinx.coroutines.launch
 
@@ -173,6 +175,12 @@ fun LearnScreen(
                                 onValueChange = { checked ->
                                     isServiceEnabled = checked
                                     prefsManager.setUnlockServiceEnabled(checked)
+                                    if (checked) {
+                                        UnlockOverlayService.start(context)
+                                    } else {
+                                        UnlockOverlayService.stop(context)
+                                    }
+                                    TutorTileService.refresh(context)
                                 },
                             ),
                         horizontalArrangement = Arrangement.SpaceBetween,

@@ -40,7 +40,7 @@
             android:showWhenLocked="true"
             android:turnScreenOn="true"
             android:theme="@style/Theme.MyApplication"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTop"
             android:excludeFromRecents="true" />
 
         <activity
@@ -83,10 +83,8 @@
         <receiver
             android:name=".service.UnlockReceiver"
             android:enabled="true"
-            android:exported="true">
+            android:exported="false">
             <intent-filter>
-                <action android:name="android.intent.action.USER_PRESENT" />
-                <action android:name="android.intent.action.SCREEN_OFF" />
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>

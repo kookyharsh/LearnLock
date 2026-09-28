@@ -6,11 +6,13 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.example.MainActivity
 import com.example.R
 import com.example.data.preferences.AppPreferencesManager
@@ -32,7 +34,12 @@ class UnlockOverlayService : Service() {
                 addAction(Intent.ACTION_USER_PRESENT)
                 addAction(Intent.ACTION_SCREEN_OFF)
             }
-            registerReceiver(receiver, filter)
+            ContextCompat.registerReceiver(
+                this,
+                receiver,
+                filter,
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
         }
     }
 
@@ -113,4 +120,19 @@ class UnlockOverlayService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    companion object {
+        fun start(context: Context) {
+            val serviceIntent = Intent(context, UnlockOverlayService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                ContextCompat.startForegroundService(context, serviceIntent)
+            } else {
+                context.startService(serviceIntent)
+            }
+        }
+
+        fun stop(context: Context) {
+            context.stopService(Intent(context, UnlockOverlayService::class.java))
+        }
+    }
 }

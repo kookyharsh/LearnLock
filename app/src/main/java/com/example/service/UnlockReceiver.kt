@@ -19,6 +19,7 @@ import com.example.data.scheduler.AdaptiveScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
@@ -40,11 +41,13 @@ class UnlockReceiver : BroadcastReceiver() {
         when (action) {
             Intent.ACTION_BOOT_COMPLETED -> {
                 startOverlayServiceIfNeeded(context)
-                pregenerateConceptsIfNeeded(context, prefsManager)
+                val pendingResult = goAsync()
+                pregenerateConceptsIfNeeded(context, prefsManager) { pendingResult.finish() }
             }
 
             Intent.ACTION_SCREEN_OFF -> {
-                pregenerateConceptsIfNeeded(context, prefsManager)
+                val pendingResult = goAsync()
+                pregenerateConceptsIfNeeded(context, prefsManager) { pendingResult.finish() }
             }
 
             Intent.ACTION_USER_PRESENT -> {
@@ -161,12 +164,23 @@ class UnlockReceiver : BroadcastReceiver() {
             return true
         }
 
-        fun pregenerateConceptsIfNeeded(context: Context, prefsManager: AppPreferencesManager) {
+        private val generationInFlight = AtomicBoolean(false)
+
+        fun pregenerateConceptsIfNeeded(
+            context: Context,
+            prefsManager: AppPreferencesManager,
+            onComplete: (() -> Unit)? = null,
+        ) {
+            if (!generationInFlight.compareAndSet(false, true)) {
+                onComplete?.invoke()
+                return
+            }
+
             CoroutineScope(Dispatchers.IO).launch {
                 try {
                     val db = AppDatabase.getDatabase(context)
                     val now = System.currentTimeMillis()
-                    var unusedCount = db.conceptDao().getUnusedCountDirect()
+                    val unusedCount = db.conceptDao().getUnusedCountDirect()
                     val dueCount = db.conceptDao().getDueReviewsCount(now)
 
                     val apiKey = prefsManager.getApiKey()
@@ -211,6 +225,9 @@ class UnlockReceiver : BroadcastReceiver() {
                     }
                 } catch (e: Exception) {
                     Log.e("UnlockReceiver", "Pre-generation error: ${e.message}")
+                } finally {
+                    generationInFlight.set(false)
+                    onComplete?.invoke()
                 }
             }
         }
