@@ -2,6 +2,7 @@ package com.example.ui.quiz
 
 import android.os.Bundle
 import android.text.format.DateFormat
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -15,12 +16,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
@@ -45,20 +45,18 @@ import androidx.compose.runtime.toMutableStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.room.withTransaction
 import com.example.data.AppDatabase
 import com.example.data.entity.ConceptItem
@@ -82,14 +80,6 @@ data class QuizQuestion(
     val correctAnswer: String,
     val explanation: String
 )
-
-private fun difficultyColor(difficulty: String?): Color {
-    return when (difficulty) {
-        "Easy" -> SuccessGreen
-        "Hard" -> ErrorRed
-        else -> GoldStar
-    }
-}
 
 data class QuizResult(
     val passed: Boolean,
@@ -161,6 +151,7 @@ private val QuizResultStateSaver: Saver<MutableState<QuizResult?>, Bundle> = Sav
     },
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun UnlockQuizScreen(
     onDismiss: () -> Unit,
@@ -329,9 +320,104 @@ fun UnlockQuizScreen(
 
     val title = pendingRetryItem?.conceptTitle ?: currentConcept?.conceptTitle ?: "CS Concept"
 
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
+
+    var showQuitConfirm by rememberSaveable { mutableStateOf(false) }
+    // Dismissing freely is safe before starting or after passing. Any other
+    // exit (including a failed attempt) asks for confirmation so progress
+    // and the queued retry are never lost by accident.
+    val canDismissFreely = !isQuizStarted || quizResult?.passed == true
+    val requestDismiss: () -> Unit = {
+        if (canDismissFreely) onDismiss() else showQuitConfirm = true
+    }
+    val retryQuiz: () -> Unit = {
+        selectedOptionIndices.clear()
+        codeAnswers.clear()
+        currentQuestionIndex = 0
+        quizResult = null
+        isQuizStarted = true
+    }
+
+    BackHandler(enabled = !canDismissFreely) { showQuitConfirm = true }
+
+    if (showQuitConfirm) {
+        AlertDialog(
+            onDismissRequest = { showQuitConfirm = false },
+            title = { Text("Quit quiz?") },
+            text = { Text("Your answers so far are kept, and this concept stays queued for retry.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showQuitConfirm = false
+                        onDismiss()
+                    },
+                ) {
+                    Text("Quit")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showQuitConfirm = false }) {
+                    Text("Keep practicing")
+                }
+            },
+        )
+    }
+
     Scaffold(
-        containerColor = DarkBackground,
-        contentWindowInsets = WindowInsets.statusBars
+        containerColor = colors.background,
+        contentWindowInsets = WindowInsets.safeDrawing,
+        topBar = {
+            TopAppBar(
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LockOpen,
+                            contentDescription = null,
+                            tint = colors.primary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Text(
+                            text = "Unlock quiz • $currentTime",
+                            style = type.labelSmall,
+                            color = colors.onSurfaceVariant,
+                        )
+                    }
+                },
+                actions = {
+                    IconButton(
+                        onClick = {
+                            isStarred = !isStarred
+                            coroutineScope.launch {
+                                db.conceptDao().updateStarStatusByTitle(title, isStarred)
+                                db.historyDao().updateStarStatusByTitle(title, isStarred)
+                            }
+                        },
+                    ) {
+                        Icon(
+                            imageVector = if (isStarred) Icons.Default.Star else Icons.Outlined.StarBorder,
+                            contentDescription = if (isStarred) {
+                                "Remove from favorites"
+                            } else {
+                                "Add to favorites"
+                            },
+                            tint = if (isStarred) GoldStar else colors.onSurfaceVariant,
+                        )
+                    }
+                    IconButton(onClick = requestDismiss) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Close quiz",
+                            tint = colors.onSurfaceVariant,
+                        )
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = colors.background),
+            )
+        },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize()) {
         if (isLoading) {
@@ -341,7 +427,7 @@ fun UnlockQuizScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                CircularProgressIndicator(color = ElegantPrimary)
+                CircularProgressIndicator()
             }
         } else if (pendingRetryItem == null && currentConcept == null) {
             Box(
@@ -352,11 +438,7 @@ fun UnlockQuizScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                    border = CardDefaults.outlinedCardBorder().copy(
-                        brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                    ),
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerHigh),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -366,36 +448,30 @@ fun UnlockQuizScreen(
                         Icon(
                             imageVector = Icons.Default.Book,
                             contentDescription = null,
-                            tint = TextMuted,
+                            tint = colors.onSurfaceVariant,
                             modifier = Modifier.size(48.dp)
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
                             text = "No concepts available yet",
-                            color = TextPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
+                            style = type.titleMedium,
+                            color = colors.onSurface,
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Configure your Gemini API key in Settings or generate concepts from the Learn tab to start learning on device unlocks.",
-                            color = TextSecondary,
-                            fontSize = 13.sp,
-                            lineHeight = 19.sp,
+                            text = "Configure your API key in Settings or generate concepts from the Learn tab to start learning on device unlocks.",
+                            style = type.bodyMedium,
+                            color = colors.onSurfaceVariant,
                             textAlign = TextAlign.Center
                         )
                         Spacer(modifier = Modifier.height(24.dp))
                         Button(
+                            // Fail-open: with nothing to quiz, the device must still unlock.
                             onClick = onDismiss,
-                            shape = CircleShape,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = ElegantPrimary,
-                                contentColor = ElegantOnPrimary
-                            ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text("Unlock Device", fontWeight = FontWeight.Bold)
+                            Text("Unlock device", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -430,68 +506,8 @@ fun UnlockQuizScreen(
                     .fillMaxSize()
                     .padding(padding)
                     .padding(horizontal = 16.dp)
-                    .verticalScroll(rememberScrollState())
+                    .verticalScroll(rememberScrollState()),
             ) {
-                // Top Meta Header Bar
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.LockOpen,
-                            contentDescription = "Unlock Quiz",
-                            tint = ElegantPrimary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = "UNLOCK QUIZ • $currentTime",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            ),
-                            color = TextSecondary
-                        )
-                    }
-
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(
-                            onClick = {
-                                isStarred = !isStarred
-                                coroutineScope.launch {
-                                    db.conceptDao().updateStarStatusByTitle(title, isStarred)
-                                    db.historyDao().updateStarStatusByTitle(title, isStarred)
-                                }
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = if (isStarred) Icons.Default.Star else Icons.Outlined.StarBorder,
-                                contentDescription = "Star Concept",
-                                tint = if (isStarred) GoldStar else TextMuted
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(4.dp))
-
-                        IconButton(
-                            onClick = onDismiss,
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Dismiss",
-                                tint = TextMuted
-                            )
-                        }
-                    }
-                }
 
                 // AI Tutor Concept Display (Unboxed / Full-width for maximum readability)
                 Column(
@@ -512,22 +528,20 @@ fun UnlockQuizScreen(
                                 modifier = Modifier
                                     .size(28.dp)
                                     .clip(CircleShape)
-                                    .background(ElegantPrimary),
+                                    .background(colors.primary),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.AutoAwesome,
                                     contentDescription = null,
-                                    tint = ElegantOnPrimary,
+                                    tint = colors.onPrimary,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
                             Text(
-                                text = topic.uppercase(),
-                                color = ElegantPrimary,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.2.sp
+                                text = topic,
+                                style = type.labelSmall,
+                                color = colors.primary,
                             )
                             val srsStatus = remember(pendingRetryItem, currentConcept) {
                                 val concept = currentConcept
@@ -551,15 +565,13 @@ fun UnlockQuizScreen(
                             }
                             if (srsStatus.isNotBlank()) {
                                 Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = ElegantPrimary.copy(alpha = 0.12f)
+                                    shape = MaterialTheme.shapes.extraSmall,
+                                    color = colors.primaryContainer,
                                 ) {
                                     Text(
                                         text = srsStatus,
-                                        color = ElegantPrimary,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.8.sp,
+                                        style = type.labelSmall,
+                                        color = colors.onPrimaryContainer,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
@@ -567,15 +579,13 @@ fun UnlockQuizScreen(
                             val difficulty = pendingRetryItem?.difficulty ?: currentConcept?.difficulty
                             if (difficulty != null) {
                                 Surface(
-                                    shape = RoundedCornerShape(6.dp),
-                                    color = difficultyColor(difficulty).copy(alpha = 0.12f)
+                                    shape = MaterialTheme.shapes.extraSmall,
+                                    color = colors.secondaryContainer,
                                 ) {
                                     Text(
-                                        text = difficulty.uppercase(),
-                                        color = difficultyColor(difficulty),
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        letterSpacing = 0.8.sp,
+                                        text = difficulty,
+                                        style = type.labelSmall,
+                                        color = colors.onSecondaryContainer,
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
@@ -591,22 +601,26 @@ fun UnlockQuizScreen(
                             ) == AdaptiveScheduler.STATUS_MASTERED
                         } == true
                         if (mastery > 0.0) {
+                            val masteryPercent = (mastery * 100).toInt()
                             Box(
-                                modifier = Modifier.size(40.dp),
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .semantics(mergeDescendants = true) {
+                                        contentDescription = "Concept mastery $masteryPercent percent"
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 CircularProgressIndicator(
                                     progress = { mastery.toFloat() },
-                                    color = if (isMastered) GoldStar else ElegantPrimary,
-                                    trackColor = DarkSurfaceVariant,
+                                    color = if (isMastered) GoldStar else colors.primary,
+                                    trackColor = colors.surfaceContainerHighest,
                                     strokeWidth = 4.dp,
                                     modifier = Modifier.fillMaxSize()
                                 )
                                 Text(
-                                    text = "${(mastery * 100).toInt()}%",
-                                    color = if (isMastered) GoldStar else TextSecondary,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.Bold
+                                    text = "$masteryPercent%",
+                                    style = type.labelSmall,
+                                    color = if (isMastered) GoldStar else colors.onSurfaceVariant,
                                 )
                             }
                         }
@@ -617,10 +631,9 @@ fun UnlockQuizScreen(
 
                 Text(
                     text = title,
-                    color = TextPrimary,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    lineHeight = 32.sp
+                    style = type.headlineSmall,
+                    color = colors.onSurface,
+                    modifier = Modifier.semantics { heading() },
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -630,19 +643,15 @@ fun UnlockQuizScreen(
                 if (codeExample.isValidSnippet()) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = DarkSurface,
-                        border = CardDefaults.outlinedCardBorder().copy(
-                            brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)
-                        ),
+                        shape = MaterialTheme.shapes.medium,
+                        color = colors.surfaceContainerHighest,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = codeExample!!.replace("\\n", "\n"),
-                            color = CodeBlue,
+                            style = type.bodyMedium,
                             fontFamily = FontFamily.Monospace,
-                            fontSize = 14.sp,
-                            lineHeight = 20.sp,
+                            color = colors.primary,
                             modifier = Modifier.padding(14.dp)
                         )
                     }
@@ -656,20 +665,13 @@ fun UnlockQuizScreen(
                     Spacer(modifier = Modifier.height(24.dp))
                     Button(
                         onClick = { isQuizStarted = true },
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ElegantPrimary,
-                            contentColor = ElegantOnPrimary
-                        ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp)
+                            .heightIn(min = 56.dp)
                     ) {
                         Text(
-                            text = "START QUIZ",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                            text = "Start quiz",
+                            style = type.titleSmall,
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(imageVector = Icons.AutoMirrored.Filled.NavigateNext, contentDescription = null)
@@ -685,10 +687,7 @@ fun UnlockQuizScreen(
 
                 // Progress bar & Question Step Badge
                 Card(
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurfaceVariant),
-                    border = CardDefaults.outlinedCardBorder()
-                        .copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
+                    colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerHigh),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(20.dp)) {
@@ -698,24 +697,21 @@ fun UnlockQuizScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Surface(
-                                shape = RoundedCornerShape(8.dp),
-                                color = ElegantPrimary.copy(alpha = 0.15f)
+                                shape = MaterialTheme.shapes.small,
+                                color = colors.primaryContainer,
                             ) {
                                 Text(
-                                    text = "QUESTION ${qIndex + 1} OF ${questionsList.size}",
-                                    color = ElegantPrimary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp,
+                                    text = "Question ${qIndex + 1} of ${questionsList.size}",
+                                    style = type.labelSmall,
+                                    color = colors.onPrimaryContainer,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                                 )
                             }
 
                             Text(
                                 text = "${qIndex + 1}/${questionsList.size}",
-                                color = TextMuted,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold
+                                style = type.labelMedium,
+                                color = colors.onSurfaceVariant,
                             )
                         }
 
@@ -728,12 +724,15 @@ fun UnlockQuizScreen(
                         )
                         LinearProgressIndicator(
                             progress = { progressAnim.value },
-                            color = ElegantPrimary,
-                            trackColor = DarkBackground,
+                            trackColor = colors.surfaceContainerHighest,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(6.dp)
                                 .clip(CircleShape)
+                                .semantics(mergeDescendants = true) {
+                                    contentDescription =
+                                        "Question ${qIndex + 1} of ${questionsList.size}"
+                                },
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -743,25 +742,10 @@ fun UnlockQuizScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(26.dp)
-                                    .clip(CircleShape)
-                                    .background(ElegantPrimary),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text(
-                                    text = "0${qIndex + 1}",
-                                    color = ElegantOnPrimary,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
                             Text(
                                 text = currentQ.questionText,
-                                color = TextPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Medium,
+                                style = type.titleSmall,
+                                color = colors.onSurface,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -771,18 +755,16 @@ fun UnlockQuizScreen(
                         // Render choices (CODE / FILL_BLANK vs MCQ / TRUE_FALSE)
                         if (isTextInputQuestion) {
                             Surface(
-                                shape = RoundedCornerShape(16.dp),
-                                color = DarkBackground,
-                                border = CardDefaults.outlinedCardBorder()
-                                    .copy(brush = androidx.compose.ui.graphics.SolidColor(DarkBorder)),
+                                shape = MaterialTheme.shapes.medium,
+                                color = colors.surfaceContainerHighest,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Text(
-                                        text = if (currentQ.questionType == "CODE") "-- Fill in code answer" else "-- Type your answer",
-                                        color = TextMuted,
-                                        fontSize = 11.sp,
-                                        fontFamily = FontFamily.Monospace
+                                        text = if (currentQ.questionType == "CODE") "Fill in the code answer" else "Type your answer",
+                                        style = type.labelSmall,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = colors.onSurfaceVariant,
                                     )
                                     Spacer(modifier = Modifier.height(6.dp))
                                     if (currentQ.codeSnippetPrefix.isValidSnippet()) {
@@ -791,48 +773,35 @@ fun UnlockQuizScreen(
                                                 "\\n",
                                                 "\n"
                                             ),
-                                            color = CodeBlue,
+                                            style = type.bodyMedium,
                                             fontFamily = FontFamily.Monospace,
-                                            fontSize = 14.sp
+                                            color = colors.primary,
                                         )
                                         Spacer(modifier = Modifier.height(6.dp))
                                     }
                                     OutlinedTextField(
                                         value = currentCodeInput,
                                         onValueChange = { codeAnswers[qIndex] = it },
+                                        label = { Text("Your answer") },
                                         placeholder = {
-                                            Text(
-                                                "type answer here...",
-                                                color = TextMuted,
-                                                fontSize = 13.sp
-                                            )
+                                            Text("Type answer here…")
                                         },
                                         textStyle = LocalTextStyle.current.copy(
-                                            color = TextPrimary,
                                             fontFamily = FontFamily.Monospace,
-                                            fontSize = 14.sp
-                                        ),
-                                        colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = ElegantPrimary,
-                                            unfocusedBorderColor = DarkBorder,
-                                            focusedContainerColor = DarkSurface,
-                                            unfocusedContainerColor = DarkSurface
                                         ),
                                         modifier = Modifier.fillMaxWidth()
                                     )
                                 }
                             }
                         } else {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.selectableGroup(),
+                            ) {
                                 if (currentQ.codeSnippetPrefix.isValidSnippet()) {
                                     Surface(
-                                        shape = RoundedCornerShape(12.dp),
-                                        color = DarkBackground,
-                                        border = CardDefaults.outlinedCardBorder().copy(
-                                            brush = androidx.compose.ui.graphics.SolidColor(
-                                                DarkBorder
-                                            )
-                                        ),
+                                        shape = MaterialTheme.shapes.small,
+                                        color = colors.surfaceContainerHighest,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Text(
@@ -840,10 +809,9 @@ fun UnlockQuizScreen(
                                                 "\\n",
                                                 "\n"
                                             ),
-                                            color = CodeBlue,
+                                            style = type.bodySmall,
                                             fontFamily = FontFamily.Monospace,
-                                            fontSize = 13.sp,
-                                            lineHeight = 18.sp,
+                                            color = colors.primary,
                                             modifier = Modifier.padding(12.dp)
                                         )
                                     }
@@ -858,11 +826,15 @@ fun UnlockQuizScreen(
                                     val (borderColor, bgColor, iconTint) = when {
                                         !isAnswered -> {
                                             if (isSelected) Triple(
-                                                ElegantPrimary,
-                                                ElegantPrimaryContainer.copy(alpha = 0.3f),
-                                                ElegantPrimary
+                                                colors.primary,
+                                                colors.primaryContainer,
+                                                colors.primary
                                             )
-                                            else Triple(DarkBorder, DarkSurface, DarkBorder)
+                                            else Triple(
+                                                colors.outline,
+                                                colors.surfaceContainerHigh,
+                                                colors.outline
+                                            )
                                         }
 
                                         isCorrect -> {
@@ -874,20 +846,24 @@ fun UnlockQuizScreen(
                                         }
 
                                         isSelected && !isCorrect -> {
-                                            Triple(ErrorRed, ErrorRed.copy(alpha = 0.18f), ErrorRed)
+                                            Triple(
+                                                colors.error,
+                                                colors.error.copy(alpha = 0.18f),
+                                                colors.error
+                                            )
                                         }
 
                                         else -> {
                                             Triple(
-                                                DarkBorder,
-                                                DarkSurface.copy(alpha = 0.4f),
-                                                DarkBorder
+                                                colors.outlineVariant,
+                                                colors.surfaceContainerLow,
+                                                colors.outlineVariant
                                             )
                                         }
                                     }
 
                                     Surface(
-                                        shape = RoundedCornerShape(14.dp),
+                                        shape = MaterialTheme.shapes.medium,
                                         color = bgColor,
                                         border = CardDefaults.outlinedCardBorder().copy(
                                             brush = androidx.compose.ui.graphics.SolidColor(
@@ -896,12 +872,15 @@ fun UnlockQuizScreen(
                                         ),
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clip(RoundedCornerShape(14.dp))
+                                            .clip(MaterialTheme.shapes.medium)
                                             // Locked once answered: re-tapping a revealed
                                             // correct option must not change the result.
-                                            .clickable(enabled = !isAnswered) {
-                                                selectedOptionIndices[qIndex] = index
-                                            }
+                                            .selectable(
+                                                selected = isSelected,
+                                                enabled = !isAnswered,
+                                                role = Role.RadioButton,
+                                                onClick = { selectedOptionIndices[qIndex] = index },
+                                            )
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(
@@ -924,14 +903,14 @@ fun UnlockQuizScreen(
                                                     Icon(
                                                         imageVector = Icons.Default.Check,
                                                         contentDescription = "Correct",
-                                                        tint = DarkBackground,
+                                                        tint = colors.inverseOnSurface,
                                                         modifier = Modifier.size(14.dp)
                                                     )
                                                 } else if (isAnswered && isSelected && !isCorrect) {
                                                     Icon(
                                                         imageVector = Icons.Default.Close,
                                                         contentDescription = "Incorrect",
-                                                        tint = TextPrimary,
+                                                        tint = colors.onError,
                                                         modifier = Modifier.size(14.dp)
                                                     )
                                                 }
@@ -939,24 +918,24 @@ fun UnlockQuizScreen(
                                             Spacer(modifier = Modifier.width(12.dp))
                                             Text(
                                                 text = optionText,
-                                                color = if (isAnswered && (isCorrect || isSelected)) TextPrimary else TextSecondary,
-                                                fontSize = 14.sp,
+                                                style = type.bodyMedium,
                                                 fontWeight = if (isAnswered && (isCorrect || isSelected)) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isAnswered && (isCorrect || isSelected)) colors.onSurface else colors.onSurfaceVariant,
                                                 modifier = Modifier.weight(1f)
                                             )
                                             if (isAnswered && isCorrect) {
                                                 Text(
                                                     text = "Correct ✓",
-                                                    color = SuccessGreen,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold
+                                                    style = type.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = SuccessGreen
                                                 )
                                             } else if (isAnswered && isSelected && !isCorrect) {
                                                 Text(
                                                     text = "Incorrect ✕",
-                                                    color = ErrorRed,
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Bold
+                                                    style = type.labelSmall,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = colors.error
                                                 )
                                             }
                                         }
@@ -971,13 +950,8 @@ fun UnlockQuizScreen(
                                 ) {
                                 Spacer(modifier = Modifier.height(12.dp))
                                     Surface(
-                                        shape = RoundedCornerShape(14.dp),
-                                        color = DarkSurface,
-                                        border = CardDefaults.outlinedCardBorder().copy(
-                                            brush = androidx.compose.ui.graphics.SolidColor(
-                                                if (selectedIdx == correctOptIdx) SuccessGreen else ElegantPrimary
-                                            )
-                                        ),
+                                        shape = MaterialTheme.shapes.medium,
+                                        color = colors.surfaceContainerHighest,
                                         modifier = Modifier.fillMaxWidth()
                                     ) {
                                         Column(modifier = Modifier.padding(14.dp)) {
@@ -988,23 +962,20 @@ fun UnlockQuizScreen(
                                                 Icon(
                                                     imageVector = Icons.Default.AutoAwesome,
                                                     contentDescription = null,
-                                                    tint = if (selectedIdx == correctOptIdx) SuccessGreen else ElegantPrimary,
+                                                    tint = if (selectedIdx == correctOptIdx) SuccessGreen else colors.primary,
                                                     modifier = Modifier.size(16.dp)
                                                 )
                                                 Text(
-                                                    text = if (selectedIdx == correctOptIdx) "EXPLANATION (CORRECT!)" else "EXPLANATION",
-                                                    color = if (selectedIdx == correctOptIdx) SuccessGreen else ElegantPrimary,
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    letterSpacing = 1.sp
+                                                    text = if (selectedIdx == correctOptIdx) "Explanation (correct!)" else "Explanation",
+                                                    style = type.labelSmall,
+                                                    color = if (selectedIdx == correctOptIdx) SuccessGreen else colors.primary,
                                                 )
                                             }
                                             Spacer(modifier = Modifier.height(6.dp))
                                             Text(
                                                 text = currentQ.explanation.replace("\\n", "\n"),
-                                                color = TextPrimary,
-                                                fontSize = 13.sp,
-                                                lineHeight = 19.sp
+                                                style = type.bodySmall,
+                                                color = colors.onSurface,
                                             )
                                         }
                                     }
@@ -1026,20 +997,13 @@ fun UnlockQuizScreen(
                     Button(
                         onClick = { currentQuestionIndex++ },
                         enabled = isCurrentAnswered,
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ElegantPrimary,
-                            contentColor = ElegantOnPrimary
-                        ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp)
+                            .heightIn(min = 56.dp)
                     ) {
                         Text(
-                            text = "NEXT QUESTION (${qIndex + 1}/${questionsList.size})",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                            text = "Next question (${qIndex + 1}/${questionsList.size})",
+                            style = type.titleSmall,
                         )
                         Spacer(modifier = Modifier.width(6.dp))
                         Icon(
@@ -1199,26 +1163,19 @@ fun UnlockQuizScreen(
                             }
                         },
                         enabled = isCurrentAnswered,
-                        shape = CircleShape,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ElegantPrimary,
-                            contentColor = ElegantOnPrimary
-                        ),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(56.dp)
+                            .heightIn(min = 56.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
-                            contentDescription = "Submit",
+                            contentDescription = null,
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = "SUBMIT QUIZ & UNLOCK",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 1.sp
+                            text = "Submit quiz",
+                            style = type.titleSmall,
                         )
                     }
                     }
@@ -1229,20 +1186,30 @@ fun UnlockQuizScreen(
             }
         }
             quizResult?.let { result ->
-                QuizResultSheet(result = result, onUnlock = onDismiss)
+                QuizResultSheet(
+                    result = result,
+                    onUnlock = onDismiss,
+                    onRetry = retryQuiz,
+                    onClose = requestDismiss,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun QuizResultSheet(result: QuizResult, onUnlock: () -> Unit) {
-    val accent = if (result.passed) SuccessGreen else ErrorRed
+private fun QuizResultSheet(
+    result: QuizResult,
+    onUnlock: () -> Unit,
+    onRetry: () -> Unit,
+    onClose: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val type = MaterialTheme.typography
+    val accent = if (result.passed) SuccessGreen else colors.error
     val scale = remember { Animatable(0.82f) }
     val sheetAlpha = remember { Animatable(0f) }
-    val scrimAlpha = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        scrimAlpha.animateTo(1f, animationSpec = tween(180))
         sheetAlpha.animateTo(1f, animationSpec = tween(160))
         scale.animateTo(1f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))
     }
@@ -1251,25 +1218,20 @@ private fun QuizResultSheet(result: QuizResult, onUnlock: () -> Unit) {
         animationSpec = tween(700, delayMillis = 250)
     )
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.7f * scrimAlpha.value))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {},
-        contentAlignment = Alignment.Center
+    // A real dialog traps focus and cannot be dismissed by tapping outside:
+    // unlocking is an explicit action, especially after a failed attempt.
+    Dialog(
+        onDismissRequest = { },
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            dismissOnClickOutside = false,
+        ),
     ) {
         Surface(
-            shape = RoundedCornerShape(28.dp),
-            color = DarkSurface,
-            border = CardDefaults.outlinedCardBorder().copy(
-                brush = SolidColor(accent.copy(alpha = 0.55f))
-            ),
+            shape = MaterialTheme.shapes.extraLarge,
+            color = colors.surfaceContainerHigh,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp)
                 .graphicsLayer {
                     scaleX = scale.value
                     scaleY = scale.value
@@ -1296,33 +1258,30 @@ private fun QuizResultSheet(result: QuizResult, onUnlock: () -> Unit) {
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = if (result.passed) "QUIZ PASSED!" else "KEEP PRACTICING",
+                    text = if (result.passed) "Quiz passed" else "Keep practicing",
+                    style = type.titleLarge,
                     color = accent,
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.5.sp
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
                     text = "${result.correctCount}/${result.total} correct",
-                    color = TextSecondary,
-                    fontSize = 14.sp
+                    style = type.bodyMedium,
+                    color = colors.onSurfaceVariant,
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 if (!result.passed) {
                     Text(
                         text = "This concept will be queued again tomorrow and kept in History for retry.",
-                        color = TextMuted,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp,
+                        style = type.bodySmall,
+                        color = colors.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
                 }
                 if (result.masteryBefore != null && result.masteryAfter != null) {
                     Spacer(modifier = Modifier.height(20.dp))
                     Surface(
-                        shape = RoundedCornerShape(14.dp),
-                        color = DarkSurfaceVariant,
+                        shape = MaterialTheme.shapes.medium,
+                        color = colors.surfaceContainerHighest,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(modifier = Modifier.padding(16.dp)) {
@@ -1332,28 +1291,29 @@ private fun QuizResultSheet(result: QuizResult, onUnlock: () -> Unit) {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "MASTERY",
-                                    color = TextMuted,
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 1.sp
+                                    text = "Mastery",
+                                    style = type.labelSmall,
+                                    color = colors.onSurfaceVariant,
                                 )
                                 Text(
                                     text = "${(result.masteryBefore * 100).toInt()}% → ${(result.masteryAfter * 100).toInt()}%",
-                                    color = TextPrimary,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold
+                                    style = type.bodyMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = colors.onSurface,
                                 )
                             }
                             Spacer(modifier = Modifier.height(10.dp))
                             LinearProgressIndicator(
                                 progress = { masteryAnim.value },
-                                color = if (result.srsStatus == AdaptiveScheduler.STATUS_MASTERED) GoldStar else ElegantPrimary,
-                                trackColor = DarkBackground,
+                                trackColor = colors.surfaceContainerHigh,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(8.dp)
                                     .clip(CircleShape)
+                                    .semantics(mergeDescendants = true) {
+                                        contentDescription =
+                                            "Mastery ${(result.masteryAfter * 100).toInt()} percent"
+                                    },
                             )
                         }
                     }
@@ -1367,25 +1327,23 @@ private fun QuizResultSheet(result: QuizResult, onUnlock: () -> Unit) {
                         Icon(
                             imageVector = Icons.Default.Schedule,
                             contentDescription = null,
-                            tint = TextMuted,
+                            tint = colors.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
                             text = "Next review in ${result.nextReviewDays} day${if (result.nextReviewDays == 1) "" else "s"}",
-                            color = TextSecondary,
-                            fontSize = 13.sp
+                            style = type.bodyMedium,
+                            color = colors.onSurfaceVariant,
                         )
                         result.srsStatus?.let { status ->
                             Surface(
-                                shape = RoundedCornerShape(6.dp),
-                                color = if (status == AdaptiveScheduler.STATUS_MASTERED) GoldStar.copy(alpha = 0.15f) else ElegantPrimary.copy(alpha = 0.12f)
+                                shape = MaterialTheme.shapes.extraSmall,
+                                color = colors.secondaryContainer,
                             ) {
                                 Text(
                                     text = status,
-                                    color = if (status == AdaptiveScheduler.STATUS_MASTERED) GoldStar else ElegantPrimary,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    letterSpacing = 0.8.sp,
+                                    style = type.labelSmall,
+                                    color = colors.onSecondaryContainer,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
@@ -1393,29 +1351,49 @@ private fun QuizResultSheet(result: QuizResult, onUnlock: () -> Unit) {
                     }
                 }
                 Spacer(modifier = Modifier.height(24.dp))
-                Button(
-                    onClick = onUnlock,
-                    shape = CircleShape,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ElegantPrimary,
-                        contentColor = ElegantOnPrimary
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(52.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.LockOpen,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "UNLOCK DEVICE",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 1.sp
-                    )
+                if (result.passed) {
+                    Button(
+                        onClick = onUnlock,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 52.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.LockOpen,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Unlock device",
+                            style = type.titleSmall,
+                        )
+                    }
+                } else {
+                    Button(
+                        onClick = onRetry,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 52.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Retry quiz",
+                            style = type.titleSmall,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = onClose,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("Close without passing")
+                    }
                 }
             }
         }
