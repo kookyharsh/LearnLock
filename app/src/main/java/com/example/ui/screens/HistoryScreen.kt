@@ -262,9 +262,13 @@ fun HistoryScreen(
                         HistoryList(
                             historyList = filteredHistory,
                             onItemClick = { historyItem -> onOpenDetail(historyItem.id) },
-                            onRetryItem = {
+                            onRetryItem = { historyItem ->
                                 val intent = Intent(context, UnlockQuizActivity::class.java).apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                    putExtra(
+                                        UnlockQuizActivity.EXTRA_RETRY_HISTORY_ID,
+                                        historyItem.id,
+                                    )
                                 }
                                 context.startActivity(intent)
                             },

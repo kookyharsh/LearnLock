@@ -1,5 +1,6 @@
 package com.example.ui.quiz
 
+import android.os.Bundle
 import android.text.format.DateFormat
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -37,6 +38,10 @@ import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.runtime.toMutableStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -54,6 +59,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.room.withTransaction
 import com.example.data.AppDatabase
 import com.example.data.entity.ConceptItem
 import com.example.data.entity.QuestionHistory
@@ -92,13 +98,74 @@ data class QuizResult(
     val masteryBefore: Double?,
     val masteryAfter: Double?,
     val nextReviewDays: Int?,
-    val srsStatus: String?
+    val srsStatus: String?,
+)
+
+private val SelectedOptionsSaver: Saver<SnapshotStateMap<Int, Int>, IntArray> = Saver(
+    save = { state: SnapshotStateMap<Int, Int> ->
+        state.entries.flatMap { entry -> listOf(entry.key, entry.value) }.toIntArray()
+    },
+    restore = { saved: IntArray ->
+        mutableStateMapOf<Int, Int>().apply {
+            saved.toList().chunked(2).forEach { pair ->
+                if (pair.size == 2) put(pair[0], pair[1])
+            }
+        }
+    },
+)
+
+private val CodeAnswersSaver: Saver<SnapshotStateMap<Int, String>, Bundle> = Saver(
+    save = { state: SnapshotStateMap<Int, String> ->
+        Bundle().apply { state.forEach { key, value -> putString(key.toString(), value) } }
+    },
+    restore = { saved: Bundle ->
+        mutableStateMapOf<Int, String>().apply {
+            saved.keySet().forEach { key ->
+                key.toIntOrNull()?.let { put(it, saved.getString(key) ?: "") }
+            }
+        }
+    },
+)
+
+private val QuizResultStateSaver: Saver<MutableState<QuizResult?>, Bundle> = Saver(
+    save = { state: MutableState<QuizResult?> ->
+        Bundle().apply {
+            state.value?.let { r ->
+                putBoolean("hasResult", true)
+                putBoolean("passed", r.passed)
+                putInt("correct", r.correctCount)
+                putInt("total", r.total)
+                r.masteryBefore?.let { putDouble("masteryBefore", it) }
+                r.masteryAfter?.let { putDouble("masteryAfter", it) }
+                r.nextReviewDays?.let { putInt("reviewDays", it) }
+                r.srsStatus?.let { putString("srs", it) }
+            }
+        }
+    },
+    restore = { saved: Bundle ->
+        mutableStateOf(
+            if (saved.getBoolean("hasResult", false)) {
+                QuizResult(
+                    passed = saved.getBoolean("passed"),
+                    correctCount = saved.getInt("correct"),
+                    total = saved.getInt("total"),
+                    masteryBefore = if (saved.containsKey("masteryBefore")) saved.getDouble("masteryBefore") else null,
+                    masteryAfter = if (saved.containsKey("masteryAfter")) saved.getDouble("masteryAfter") else null,
+                    nextReviewDays = if (saved.containsKey("reviewDays")) saved.getInt("reviewDays") else null,
+                    srsStatus = saved.getString("srs"),
+                )
+            } else {
+                null
+            },
+        )
+    },
 )
 
 @Composable
 fun UnlockQuizScreen(
     onDismiss: () -> Unit,
-    modifier: Modifier = Modifier
+    retryHistoryId: Long? = null,
+    modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
     val db = remember { AppDatabase.getDatabase(context) }
@@ -109,36 +176,74 @@ fun UnlockQuizScreen(
     var currentConcept by remember { mutableStateOf<ConceptItem?>(null) }
     var isLoading by remember { mutableStateOf(true) }
 
-    var isQuizStarted by remember { mutableStateOf(false) }
-    var currentQuestionIndex by remember { mutableIntStateOf(0) }
+    var isQuizStarted by rememberSaveable { mutableStateOf(false) }
+    var currentQuestionIndex by rememberSaveable { mutableIntStateOf(0) }
 
-    // Track selected option indices and code answers per question index
-    val selectedOptionIndices = remember { mutableStateMapOf<Int, Int>() }
-    val codeAnswers = remember { mutableStateMapOf<Int, String>() }
+    // Track selected option indices and code answers per question index.
+    // Custom savers keep answers across recreation so progress is never lost.
+    val selectedOptionIndices = rememberSaveable(saver = SelectedOptionsSaver) {
+        mutableStateMapOf<Int, Int>()
+    }
+    val codeAnswers = rememberSaveable(saver = CodeAnswersSaver) {
+        mutableStateMapOf<Int, String>()
+    }
 
-    var isStarred by remember { mutableStateOf(false) }
+    var isStarred by rememberSaveable { mutableStateOf(false) }
 
-    var quizResult by remember { mutableStateOf<QuizResult?>(null) }
+    val quizResultHolder = rememberSaveable(saver = QuizResultStateSaver) {
+        mutableStateOf<QuizResult?>(null)
+    }
+    var quizResult by quizResultHolder
+
+    // Content identity survives recreation so a rotation reloads the same
+    // concept from the database instead of regenerating (and re-billing).
+    var restoredConceptId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var restoredRetryId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     val currentTime = remember {
         DateFormat.format("hh:mm a", Date()).toString()
     }
 
     LaunchedEffect(Unit) {
+        val didFreshLoad = restoredConceptId == null && restoredRetryId == null
         try {
-            val retryItem = db.historyDao().getPendingRetryQuestion()
-            if (retryItem != null) {
-                pendingRetryItem = retryItem
-                isStarred = retryItem.isStarred
-                val originalConcept = db.conceptDao().getConceptByTitle(retryItem.conceptTitle)
-                if (originalConcept != null) {
-                    currentConcept = originalConcept
+            if (!didFreshLoad) {
+                // Recreation (e.g. rotation): reload the same content from the
+                // database. Never regenerate and never re-bill the API.
+                restoredRetryId?.let { id ->
+                    db.historyDao().getHistoryByIdOnce(id)?.let { item ->
+                        pendingRetryItem = item
+                        isStarred = item.isStarred
+                    }
+                }
+                restoredConceptId?.let { id ->
+                    db.conceptDao().getConceptById(id)?.let { concept ->
+                        currentConcept = concept
+                        if (pendingRetryItem == null) isStarred = concept.isStarred
+                    }
                 }
             } else {
+                // A retry opened for one specific history entry wins over the
+                // global newest retry, so "Retry Question Now" quizzes that card.
+                val requestedId = retryHistoryId
+                val requestedRetry: QuestionHistory? = if (requestedId != null) {
+                    db.historyDao().getHistoryByIdOnce(requestedId)
+                } else {
+                    null
+                }
+                val retryItem: QuestionHistory? =
+                    requestedRetry ?: db.historyDao().getPendingRetryQuestion()
+                if (retryItem != null) {
+                    pendingRetryItem = retryItem
+                    isStarred = retryItem.isStarred
+                    val originalConcept = db.conceptDao().getConceptByTitle(retryItem.conceptTitle)
+                    if (originalConcept != null) {
+                        currentConcept = originalConcept
+                    }
+                } else {
                 val selectedTopics = prefsManager.getSelectedTopics().toList()
                 val cooldown24h = System.currentTimeMillis() - (24 * 60 * 60 * 1000)
                 val recentTitles = db.historyDao().getRecentConceptTitles(cooldown24h)
-                val targetCount = prefsManager.getQuestionsPerQuiz()
                 val now = System.currentTimeMillis()
 
                 // 1) Spaced repetition: surface due reviews first
@@ -182,8 +287,11 @@ fun UnlockQuizScreen(
                         fallbackCorrectAnswer = concept.correctAnswer,
                         fallbackExplanation = concept.explanation
                     )
-                    if (parsedQuestions.size != targetCount) {
-                        db.conceptDao().markConceptUsed(concept.id)
+                    // A stored concept whose question count differs from the
+                    // current preference is still usable as-is: the quiz simply
+                    // renders however many questions it has. It must not be
+                    // burned, or the queue silently shrinks on every slider move.
+                    if (parsedQuestions.isEmpty()) {
                         concept = null
                     }
                 }
@@ -205,13 +313,18 @@ fun UnlockQuizScreen(
                 if (concept != null) {
                     isStarred = concept.isStarred
                 }
+                restoredConceptId = currentConcept?.id
+                restoredRetryId = pendingRetryItem?.id
+                }
             }
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
             isLoading = false
         }
-        UnlockReceiver.pregenerateConceptsIfNeeded(context, prefsManager)
+        if (didFreshLoad) {
+            UnlockReceiver.pregenerateConceptsIfNeeded(context, prefsManager)
+        }
     }
 
     val title = pendingRetryItem?.conceptTitle ?: currentConcept?.conceptTitle ?: "CS Concept"
@@ -568,7 +681,7 @@ fun UnlockQuizScreen(
                     val qIndex = currentQuestionIndex
                     val selectedIdx = selectedOptionIndices[qIndex] ?: -1
                     val currentCodeInput = codeAnswers[qIndex] ?: ""
-                    val isTextInputQuestion = false
+                    val isTextInputQuestion = isTextAnswerQuestion(currentQ)
 
                 // Progress bar & Question Step Badge
                 Card(
@@ -784,7 +897,11 @@ fun UnlockQuizScreen(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .clip(RoundedCornerShape(14.dp))
-                                            .clickable { selectedOptionIndices[qIndex] = index }
+                                            // Locked once answered: re-tapping a revealed
+                                            // correct option must not change the result.
+                                            .clickable(enabled = !isAnswered) {
+                                                selectedOptionIndices[qIndex] = index
+                                            }
                                     ) {
                                         Row(
                                             modifier = Modifier.padding(
@@ -936,21 +1053,32 @@ fun UnlockQuizScreen(
                         onClick = {
                             coroutineScope.launch {
                                 var correctCount = 0
+                                var gradableCount = 0
                                 questionsList.forEachIndexed { i, q ->
-                                    val userSelIdx = selectedOptionIndices[i] ?: -1
-                                    val correctOptIdx = getCorrectOptionIndex(q)
-                                    if (userSelIdx == correctOptIdx) correctCount++
+                                    if (isQuestionGradable(q)) {
+                                        gradableCount++
+                                        if (isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i])) {
+                                            correctCount++
+                                        }
+                                    }
                                 }
 
-                                val passed =
-                                    if (questionsList.size > 1) correctCount >= (questionsList.size / 2 + 1) else correctCount >= 1
+                                val passed = gradableCount > 0 &&
+                                    if (gradableCount > 1) correctCount >= (gradableCount / 2 + 1) else correctCount >= 1
 
                                 val userAnswersList = mutableListOf<String>()
                                 questionsList.forEachIndexed { i, q ->
-                                    val selIdx = selectedOptionIndices[i] ?: -1
-                                    val ans = q.optionsList.getOrNull(selIdx)
-                                        ?: if (selIdx != -1) selIdx.toString() else "Unanswered"
-                                    userAnswersList.add(ans)
+                                    if (isTextAnswerQuestion(q)) {
+                                        userAnswersList.add(
+                                            codeAnswers[i]?.trim().takeIf { !it.isNullOrBlank() }
+                                                ?: "Unanswered",
+                                        )
+                                    } else {
+                                        val selIdx = selectedOptionIndices[i] ?: -1
+                                        val ans = q.optionsList.getOrNull(selIdx)
+                                            ?: if (selIdx != -1) selIdx.toString() else "Unanswered"
+                                        userAnswersList.add(ans)
+                                    }
                                 }
 
                                 val formattedUserAnswer = if (userAnswersList.size == 1) {
@@ -968,7 +1096,7 @@ fun UnlockQuizScreen(
                                     questionsList.forEachIndexed { i, q ->
                                         put(JSONObject().apply {
                                             put("idx", i)
-                                            put("isCorrect", (selectedOptionIndices[i] ?: -1) == getCorrectOptionIndex(q))
+                                            put("isCorrect", isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i]))
                                         })
                                     }
                                 }.toString()
@@ -976,92 +1104,94 @@ fun UnlockQuizScreen(
                                     ?: pendingRetryItem?.difficulty
                                     ?: "Medium"
 
-                                // Insert QuestionHistory entry (RETRY_PENDING if failed so user can re-practice in History)
-                                db.historyDao().insertHistory(
-                                    QuestionHistory(
-                                        id = 0,
-                                        conceptTitle = title,
-                                        topic = topic,
-                                        questionText = if (questionsList.size > 1) "${questionsList.size}-Question Quiz ($correctCount/${questionsList.size} Correct)" else firstQ.questionText,
-                                        userAnswer = formattedUserAnswer,
-                                        correctAnswer = firstQ.correctAnswer,
-                                        isCorrect = passed,
-                                        status = newStatus,
-                                        explanation = firstQ.explanation,
-                                        optionsJson = JSONArray(firstQ.optionsList).toString(),
-                                        questionType = firstQ.questionType,
-                                        codeSnippetPrefix = firstQ.codeSnippetPrefix,
-                                        questionsJson = rawQuestionsJson,
-                                        conceptSummary = summary,
-                                        isStarred = isStarred,
-                                        answeredAt = System.currentTimeMillis(),
-                                        perQuestionResultsJson = perQuestionResults,
-                                        difficulty = answeredDifficulty
-                                    )
-                                )
-
-                                val currentItem = pendingRetryItem
-                                if (currentItem != null) {
-                                    if (passed) {
-                                        db.historyDao().markConceptPassed(currentItem.conceptTitle)
-                                    } else {
-                                        db.historyDao()
-                                            .updateHistory(currentItem.copy(status = "RETRY_RESOLVED"))
-                                    }
-                                }
-
+                                // All submit writes are atomic: a crash mid-submit
+                                // cannot leave history and SRS half-applied.
+                                val submitConcept = currentConcept
                                 var masteryAfter: Double? = null
                                 var reviewInterval: Int? = null
                                 var reviewStatus: String? = null
-                                val concept = currentConcept
-                                if (concept != null) {
-                                    db.conceptDao().markConceptUsed(concept.id)
-                                    // Spaced-repetition scheduling + mastery update
-                                    val answeredAt = System.currentTimeMillis()
-                                    val srs = AdaptiveScheduler.scheduleAnswer(
-                                        repetitions = concept.repetitions,
-                                        easeFactor = concept.easeFactor,
-                                        intervalDays = concept.intervalDays,
-                                        nextReviewAt = concept.nextReviewAt,
-                                        lapses = concept.lapses,
-                                        passed = passed,
-                                        now = answeredAt
+                                db.withTransaction {
+                                    // Insert QuestionHistory entry (RETRY_PENDING if failed so user can re-practice in History)
+                                    db.historyDao().insertHistory(
+                                        QuestionHistory(
+                                            id = 0,
+                                            conceptTitle = title,
+                                            topic = topic,
+                                            questionText = if (questionsList.size > 1) "${questionsList.size}-Question Quiz ($correctCount/${questionsList.size} Correct)" else firstQ.questionText,
+                                            userAnswer = formattedUserAnswer,
+                                            correctAnswer = firstQ.correctAnswer,
+                                            isCorrect = passed,
+                                            status = newStatus,
+                                            explanation = firstQ.explanation,
+                                            optionsJson = JSONArray(firstQ.optionsList).toString(),
+                                            questionType = firstQ.questionType,
+                                            codeSnippetPrefix = firstQ.codeSnippetPrefix,
+                                            questionsJson = rawQuestionsJson,
+                                            conceptSummary = summary,
+                                            isStarred = isStarred,
+                                            answeredAt = System.currentTimeMillis(),
+                                            perQuestionResultsJson = perQuestionResults,
+                                            difficulty = answeredDifficulty
+                                        )
                                     )
-                                    val recentCorrect = db.historyDao()
-                                        .getRecentCorrectnessForConcept(title, 10)
-                                    val recentTimes = db.historyDao()
-                                        .getRecentTimestampsForConcept(title, 10)
-                                    val mastery = AdaptiveScheduler.computeMastery(
-                                        recentCorrect,
-                                        recentTimes,
-                                        answeredAt
-                                    )
-                                    db.conceptDao().updateReviewState(
-                                        id = concept.id,
-                                        repetitions = srs.repetitions,
-                                        easeFactor = srs.easeFactor,
-                                        intervalDays = srs.intervalDays,
-                                        nextReviewAt = srs.nextReviewAt,
-                                        lapses = srs.lapses,
-                                        masteryScore = mastery
-                                    )
-                                    masteryAfter = mastery
-                                    reviewInterval = srs.intervalDays
-                                    reviewStatus = AdaptiveScheduler.statusOf(
-                                        srs.repetitions,
-                                        srs.intervalDays,
-                                        srs.nextReviewAt
-                                    )
-                                }
-                                if (passed) {
-                                    db.historyDao().markConceptPassed(title)
+
+                                    val currentItem = pendingRetryItem
+                                    if (currentItem != null && passed) {
+                                        // The retried concept is resolved only by passing;
+                                        // a failed retry keeps its RETRY_PENDING status.
+                                        db.historyDao().markConceptPassed(currentItem.conceptTitle)
+                                    }
+
+                                    val concept = submitConcept
+                                    if (concept != null) {
+                                        db.conceptDao().markConceptUsed(concept.id)
+                                        // Spaced-repetition scheduling + mastery update
+                                        val answeredAt = System.currentTimeMillis()
+                                        val srs = AdaptiveScheduler.scheduleAnswer(
+                                            repetitions = concept.repetitions,
+                                            easeFactor = concept.easeFactor,
+                                            intervalDays = concept.intervalDays,
+                                            nextReviewAt = concept.nextReviewAt,
+                                            lapses = concept.lapses,
+                                            passed = passed,
+                                            now = answeredAt
+                                        )
+                                        val recentCorrect = db.historyDao()
+                                            .getRecentCorrectnessForConcept(title, 10)
+                                        val recentTimes = db.historyDao()
+                                            .getRecentTimestampsForConcept(title, 10)
+                                        val mastery = AdaptiveScheduler.computeMastery(
+                                            recentCorrect,
+                                            recentTimes,
+                                            answeredAt
+                                        )
+                                        db.conceptDao().updateReviewState(
+                                            id = concept.id,
+                                            repetitions = srs.repetitions,
+                                            easeFactor = srs.easeFactor,
+                                            intervalDays = srs.intervalDays,
+                                            nextReviewAt = srs.nextReviewAt,
+                                            lapses = srs.lapses,
+                                            masteryScore = mastery
+                                        )
+                                        masteryAfter = mastery
+                                        reviewInterval = srs.intervalDays
+                                        reviewStatus = AdaptiveScheduler.statusOf(
+                                            srs.repetitions,
+                                            srs.intervalDays,
+                                            srs.nextReviewAt
+                                        )
+                                    }
+                                    if (passed) {
+                                        db.historyDao().markConceptPassed(title)
+                                    }
                                 }
 
                                 quizResult = QuizResult(
                                     passed = passed,
                                     correctCount = correctCount,
-                                    total = questionsList.size,
-                                    masteryBefore = concept?.masteryScore,
+                                    total = gradableCount,
+                                    masteryBefore = submitConcept?.masteryScore,
                                     masteryAfter = masteryAfter,
                                     nextReviewDays = reviewInterval,
                                     srsStatus = reviewStatus
@@ -1312,7 +1442,26 @@ fun getCorrectOptionIndex(q: QuizQuestion): Int {
     }
     val textMatchIdx = q.optionsList.indexOfFirst { it.trim().equals(cAns, ignoreCase = true) }
     if (textMatchIdx != -1) return textMatchIdx
-    return 0
+    // Ungradable: the stored answer matches nothing. Callers must exclude
+    // such questions from grading instead of accepting option A.
+    return -1
+}
+
+/** CODE / FILL_BLANK questions are answered by typing, not by picking. */
+private fun isTextAnswerQuestion(q: QuizQuestion): Boolean =
+    q.questionType == "CODE" || q.questionType == "FILL_BLANK"
+
+private fun isQuestionGradable(q: QuizQuestion): Boolean =
+    if (isTextAnswerQuestion(q)) q.correctAnswer.isNotBlank() else getCorrectOptionIndex(q) != -1
+
+private fun isQuestionCorrect(q: QuizQuestion, selectedIdx: Int?, codeText: String?): Boolean {
+    if (isTextAnswerQuestion(q)) {
+        if (q.correctAnswer.isBlank()) return false
+        val userText = codeText?.trim().orEmpty()
+        return userText.isNotBlank() && userText.equals(q.correctAnswer.trim(), ignoreCase = true)
+    }
+    val correctOptIdx = getCorrectOptionIndex(q)
+    return correctOptIdx != -1 && (selectedIdx ?: -1) == correctOptIdx
 }
 
 fun parseQuestionsList(

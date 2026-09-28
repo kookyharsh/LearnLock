@@ -11,6 +11,10 @@ import com.example.ui.theme.UnlockLearnTheme
 
 class UnlockQuizActivity : ComponentActivity() {
 
+    companion object {
+        const val EXTRA_RETRY_HISTORY_ID = "retry_history_id"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
@@ -34,8 +38,11 @@ class UnlockQuizActivity : ComponentActivity() {
 
         setContent {
             UnlockLearnTheme {
+                val retryHistoryId = intent.getLongExtra(EXTRA_RETRY_HISTORY_ID, -1L)
+                    .takeIf { it != -1L }
                 UnlockQuizScreen(
-                    onDismiss = { finish() }
+                    onDismiss = { finish() },
+                    retryHistoryId = retryHistoryId,
                 )
             }
         }

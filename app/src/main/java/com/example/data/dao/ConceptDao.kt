@@ -53,6 +53,9 @@ interface ConceptDao {
     @Query("SELECT * FROM concepts WHERE conceptTitle = :title LIMIT 1")
     suspend fun getConceptByTitle(title: String): ConceptItem?
 
+    @Query("SELECT * FROM concepts WHERE id = :id LIMIT 1")
+    suspend fun getConceptById(id: Long): ConceptItem?
+
     @Query("UPDATE concepts SET isStarred = :isStarred WHERE id = :id")
     suspend fun updateStarStatus(id: Long, isStarred: Boolean)
 

@@ -38,6 +38,9 @@ interface HistoryDao {
     @Query("SELECT * FROM question_history WHERE id = :id")
     fun getHistoryById(id: Long): Flow<QuestionHistory?>
 
+    @Query("SELECT * FROM question_history WHERE id = :id")
+    suspend fun getHistoryByIdOnce(id: Long): QuestionHistory?
+
     @Query("SELECT * FROM question_history WHERE isStarred = 1 ORDER BY answeredAt DESC")
     fun getStarredHistory(): Flow<List<QuestionHistory>>
 
