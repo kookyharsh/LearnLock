@@ -27,7 +27,10 @@ class UnlockQuizActivity : ComponentActivity() {
             )
         }
 
-        enableEdgeToEdge()
+        enableEdgeToEdge(
+            statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
+        )
 
         setContent {
             UnlockLearnTheme {
