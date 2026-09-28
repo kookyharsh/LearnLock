@@ -24,6 +24,12 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Versions 1 and 2 share the same schema; this preserves user data.
+            }
+        }
+
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
@@ -63,8 +69,7 @@ abstract class AppDatabase : RoomDatabase() {
                                 AppDatabase::class.java,
                                 "unlock_learn_db"
                             )
-                            .addMigrations(MIGRATION_2_3)
-                            .fallbackToDestructiveMigration(dropAllTables = false)
+                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                             .build()
                 INSTANCE = instance
                 instance

@@ -4,7 +4,6 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKeys
-import com.example.BuildConfig
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,13 +30,7 @@ class AppPreferencesManager(private val context: Context) {
     val apiKeyFlow: StateFlow<String> = _apiKeyFlow.asStateFlow()
 
     fun getApiKey(): String {
-        val customKey = prefs.getString(KEY_API_KEY, "") ?: ""
-        if (customKey.isNotBlank()) return customKey
-        return try {
-            BuildConfig.GEMINI_API_KEY
-        } catch (e: Exception) {
-            ""
-        }
+        return prefs.getString(KEY_API_KEY, "") ?: ""
     }
 
     fun setApiKey(key: String) {

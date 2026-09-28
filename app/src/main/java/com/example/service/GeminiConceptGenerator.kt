@@ -69,7 +69,7 @@ class GeminiConceptGenerator(
             } else {
                 // Google Gemini endpoint
                 val modelName = configuredModel ?: "gemini-3.5-flash"
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent"
                 val jsonPayload = JSONObject().apply {
                     put("contents", JSONArray().apply {
                         put(JSONObject().apply {
@@ -83,6 +83,7 @@ class GeminiConceptGenerator(
                 }
                 requestBuilder.url(url)
                     .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                    .addHeader("x-goog-api-key", apiKey)
             }
 
             client.newCall(requestBuilder.build()).execute().use { response ->
@@ -210,7 +211,7 @@ class GeminiConceptGenerator(
                     val responseBody = response.body?.string()
 
                     if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                        Log.e("GeminiGenerator", "OpenRouter request failed code=${response.code}, body=$responseBody")
+                        Log.e("GeminiGenerator", "OpenRouter request failed code=${response.code}")
                         return@withContext emptyList()
                     }
 
@@ -245,7 +246,7 @@ class GeminiConceptGenerator(
                     val responseBody = response.body?.string()
 
                     if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                        Log.e("GeminiGenerator", "OpenAI request failed code=${response.code}, body=$responseBody")
+                        Log.e("GeminiGenerator", "OpenAI request failed code=${response.code}")
                         return@withContext emptyList()
                     }
 
@@ -260,7 +261,7 @@ class GeminiConceptGenerator(
             } else {
                 // Gemini format (default for non-sk keys)
                 val modelName = configuredModel ?: "gemini-1.5-flash"
-                val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent?key=$apiKey"
+                val url = "https://generativelanguage.googleapis.com/v1beta/models/$modelName:generateContent"
                 
                 val jsonPayload = JSONObject().apply {
                     put("contents", JSONArray().apply {
@@ -280,12 +281,13 @@ class GeminiConceptGenerator(
 
                 requestBuilder.url(url)
                     .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
+                    .addHeader("x-goog-api-key", apiKey)
 
                 client.newCall(requestBuilder.build()).execute().use { response ->
                     val responseBody = response.body?.string()
 
                     if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                        Log.e("GeminiGenerator", "Gemini request failed code=${response.code}, body=$responseBody")
+                        Log.e("GeminiGenerator", "Gemini request failed code=${response.code}")
                         return@withContext emptyList()
                     }
 
@@ -338,7 +340,7 @@ class GeminiConceptGenerator(
 
             results
         } catch (e: Exception) {
-            Log.e("GeminiGenerator", "Error calling Gemini API: ${e.message}", e)
+            Log.e("GeminiGenerator", "Error calling AI provider")
             emptyList()
         }
     }
