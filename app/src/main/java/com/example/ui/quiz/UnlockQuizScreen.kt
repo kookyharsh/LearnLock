@@ -227,7 +227,10 @@ fun UnlockQuizScreen(
                 if (retryItem != null) {
                     pendingRetryItem = retryItem
                     isStarred = retryItem.isStarred
-                    val originalConcept = db.conceptDao().getConceptByTitle(retryItem.conceptTitle)
+                    val originalConcept = db.conceptDao().getConceptByTopicAndTitle(
+                        retryItem.topic,
+                        retryItem.conceptTitle,
+                    )
                     if (originalConcept != null) {
                         currentConcept = originalConcept
                     }
@@ -300,6 +303,16 @@ fun UnlockQuizScreen(
                     }
                 }
 
+                // 4) Offline / empty queue fallback: recycle a previously answered concept for review
+                if (concept == null) {
+                    concept = if (selectedTopics.isEmpty()) {
+                        db.conceptDao().getRecycledReviewConcept()
+                    } else {
+                        db.conceptDao().getRecycledReviewConceptForTopics(selectedTopics)
+                            ?: db.conceptDao().getRecycledReviewConcept()
+                    }
+                }
+
                 currentConcept = concept
                 if (concept != null) {
                     isStarred = concept.isStarred
@@ -319,6 +332,7 @@ fun UnlockQuizScreen(
     }
 
     val title = pendingRetryItem?.conceptTitle ?: currentConcept?.conceptTitle ?: "CS Concept"
+    val topic = pendingRetryItem?.topic ?: currentConcept?.topic ?: "General Knowledge"
 
     val colors = MaterialTheme.colorScheme
     val type = MaterialTheme.typography
@@ -392,8 +406,8 @@ fun UnlockQuizScreen(
                         onClick = {
                             isStarred = !isStarred
                             coroutineScope.launch {
-                                db.conceptDao().updateStarStatusByTitle(title, isStarred)
-                                db.historyDao().updateStarStatusByTitle(title, isStarred)
+                                db.conceptDao().updateStarStatusForConcept(topic, title, isStarred)
+                                db.historyDao().updateStarStatusForConcept(topic, title, isStarred)
                             }
                         },
                     ) {
@@ -477,7 +491,6 @@ fun UnlockQuizScreen(
                 }
             }
         } else {
-            val topic = pendingRetryItem?.topic ?: currentConcept?.topic ?: "General CS"
             val summary = currentConcept?.conceptSummary
                 ?: "Master this fundamental software engineering concept to complete your unlock."
             val codeExample = currentConcept?.codeExample
@@ -501,13 +514,29 @@ fun UnlockQuizScreen(
                 )
             }
 
+            val qIndex = currentQuestionIndex.coerceIn(0, questionsList.lastIndex)
+            val currentQ = questionsList[qIndex]
+            val selectedIdx = selectedOptionIndices[qIndex] ?: -1
+            val currentCodeInput = codeAnswers[qIndex] ?: ""
+            val isTextInputQuestion = isTextAnswerQuestion(currentQ)
+            val isCurrentAnswered = if (isTextInputQuestion) {
+                currentCodeInput.isNotBlank()
+            } else {
+                selectedIdx != -1
+            }
+
             Column(
                 modifier = modifier
                     .fillMaxSize()
-                    .padding(padding)
-                    .padding(horizontal = 16.dp)
-                    .verticalScroll(rememberScrollState()),
+                    .padding(padding),
             ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp),
+                ) {
 
                 // AI Tutor Concept Display (Unboxed / Full-width for maximum readability)
                 Column(
@@ -640,50 +669,41 @@ fun UnlockQuizScreen(
 
                 MarkdownView(markdownText = summary)
 
-                if (codeExample.isValidSnippet()) {
+                val programmingSubject = isProgrammingSubject(topic)
+                val incompatibleLegacyExample = !programmingSubject && looksLikeProgrammingCode(codeExample)
+                if (codeExample.isValidSnippet() && !incompatibleLegacyExample) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Surface(
                         shape = MaterialTheme.shapes.medium,
                         color = colors.surfaceContainerHighest,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = codeExample!!.replace("\\n", "\n"),
-                            style = type.bodyMedium,
-                            fontFamily = FontFamily.Monospace,
-                            color = colors.primary,
-                            modifier = Modifier.padding(14.dp)
-                        )
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Text(
+                                text = if (programmingSubject) "Code example" else "Example",
+                                style = type.labelMedium,
+                                color = colors.primary,
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = codeExample!!.replace("\\n", "\n"),
+                                style = type.bodyMedium,
+                                fontFamily = if (programmingSubject) FontFamily.Monospace else FontFamily.Default,
+                                color = colors.onSurface,
+                            )
+                        }
                     }
+                } else if (incompatibleLegacyExample) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "The saved example did not match this subject, so it was omitted.",
+                        style = type.bodySmall,
+                        color = colors.onSurfaceVariant,
+                    )
                 }
 
-                AnimatedContent(
-                    targetState = isQuizStarted,
-                    transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(150)) }
-                ) { started ->
-                if (!started) {
-                    Spacer(modifier = Modifier.height(24.dp))
-                    Button(
-                        onClick = { isQuizStarted = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 56.dp)
-                    ) {
-                        Text(
-                            text = "Start quiz",
-                            style = type.titleSmall,
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(imageVector = Icons.AutoMirrored.Filled.NavigateNext, contentDescription = null)
-                    }
-                    Spacer(modifier = Modifier.height(24.dp))
-                } else {
+                if (isQuizStarted) {
                     Spacer(modifier = Modifier.height(16.dp))
-                    val currentQ = questionsList[currentQuestionIndex]
-                    val qIndex = currentQuestionIndex
-                    val selectedIdx = selectedOptionIndices[qIndex] ?: -1
-                    val currentCodeInput = codeAnswers[qIndex] ?: ""
-                    val isTextInputQuestion = isTextAnswerQuestion(currentQ)
 
                 // Progress bar & Question Step Badge
                 Card(
@@ -774,8 +794,8 @@ fun UnlockQuizScreen(
                                                 "\n"
                                             ),
                                             style = type.bodyMedium,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = colors.primary,
+                                            fontFamily = if (programmingSubject) FontFamily.Monospace else FontFamily.Default,
+                                            color = colors.onSurface,
                                         )
                                         Spacer(modifier = Modifier.height(6.dp))
                                     }
@@ -810,8 +830,8 @@ fun UnlockQuizScreen(
                                                 "\n"
                                             ),
                                             style = type.bodySmall,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = colors.primary,
+                                            fontFamily = if (programmingSubject) FontFamily.Monospace else FontFamily.Default,
+                                            color = colors.onSurface,
                                             modifier = Modifier.padding(12.dp)
                                         )
                                     }
@@ -986,14 +1006,31 @@ fun UnlockQuizScreen(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
-
-                val isCurrentAnswered = if (isTextInputQuestion) {
-                    currentCodeInput.isNotBlank()
-                } else {
-                    selectedIdx != -1
                 }
 
-                if (qIndex < questionsList.size - 1) {
+                Surface(
+                    color = colors.surfaceContainer,
+                    tonalElevation = 3.dp,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    ) {
+                if (!isQuizStarted) {
+                    Button(
+                        onClick = { isQuizStarted = true },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = 56.dp),
+                    ) {
+                        Text("Start quiz", style = type.titleSmall)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.NavigateNext,
+                            contentDescription = null,
+                        )
+                    }
+                } else if (qIndex < questionsList.size - 1) {
                     Button(
                         onClick = { currentQuestionIndex++ },
                         enabled = isCurrentAnswered,
@@ -1103,7 +1140,10 @@ fun UnlockQuizScreen(
                                     if (currentItem != null && passed) {
                                         // The retried concept is resolved only by passing;
                                         // a failed retry keeps its RETRY_PENDING status.
-                                        db.historyDao().markConceptPassed(currentItem.conceptTitle)
+                                        db.historyDao().markConceptPassed(
+                                            currentItem.topic,
+                                            currentItem.conceptTitle,
+                                        )
                                     }
 
                                     val concept = submitConcept
@@ -1121,9 +1161,9 @@ fun UnlockQuizScreen(
                                             now = answeredAt
                                         )
                                         val recentCorrect = db.historyDao()
-                                            .getRecentCorrectnessForConcept(title, 10)
+                                            .getRecentCorrectnessForConcept(topic, title, 10)
                                         val recentTimes = db.historyDao()
-                                            .getRecentTimestampsForConcept(title, 10)
+                                            .getRecentTimestampsForConcept(topic, title, 10)
                                         val mastery = AdaptiveScheduler.computeMastery(
                                             recentCorrect,
                                             recentTimes,
@@ -1147,7 +1187,7 @@ fun UnlockQuizScreen(
                                         )
                                     }
                                     if (passed) {
-                                        db.historyDao().markConceptPassed(title)
+                                        db.historyDao().markConceptPassed(topic, title)
                                     }
                                 }
 
@@ -1195,6 +1235,7 @@ fun UnlockQuizScreen(
             }
         }
     }
+}
 }
 
 @Composable
@@ -1406,6 +1447,23 @@ fun String?.isValidSnippet(): Boolean {
     return trimmed.isNotEmpty() && !trimmed.equals("null", ignoreCase = true)
 }
 
+private fun isProgrammingSubject(topic: String): Boolean {
+    val normalized = topic.lowercase()
+    return listOf(
+        "programming", "computer", "software", "technology", "coding",
+        "python", "java", "kotlin", "javascript", "sql", "web development",
+    ).any(normalized::contains)
+}
+
+private fun looksLikeProgrammingCode(value: String?): Boolean {
+    if (value.isNullOrBlank()) return false
+    val normalized = value.lowercase()
+    return listOf(
+        "def ", "return ", "function ", "const ", "let ", "var ",
+        "if (", "if ", "{", "};", "public class", "select ", "import ",
+    ).any(normalized::contains)
+}
+
 fun getCorrectOptionIndex(q: QuizQuestion): Int {
     val cAns = q.correctAnswer.trim()
     val idxAsInt = cAns.toIntOrNull()
@@ -1514,5 +1572,3 @@ private fun parseOptionsJson(jsonStr: String?): List<String> {
  * are drawn from the user's weakest areas. Topics without history are treated
  * as neutral (0.5).
  */
-
-
