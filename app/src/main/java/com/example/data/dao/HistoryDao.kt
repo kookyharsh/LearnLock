@@ -23,8 +23,8 @@ interface HistoryDao {
     @Update
     suspend fun updateHistory(history: QuestionHistory)
 
-    @Query("UPDATE question_history SET status = 'PASSED' WHERE conceptTitle = :conceptTitle AND status = 'RETRY_PENDING'")
-    suspend fun markConceptPassed(conceptTitle: String)
+    @Query("UPDATE question_history SET status = 'PASSED' WHERE topic = :topic AND conceptTitle = :conceptTitle AND status = 'RETRY_PENDING'")
+    suspend fun markConceptPassed(topic: String, conceptTitle: String)
 
     @Query("SELECT * FROM question_history WHERE status = 'RETRY_PENDING' ORDER BY answeredAt DESC LIMIT 1")
     suspend fun getPendingRetryQuestion(): QuestionHistory?
@@ -50,6 +50,9 @@ interface HistoryDao {
     @Query("UPDATE question_history SET isStarred = :isStarred WHERE conceptTitle = :title")
     suspend fun updateStarStatusByTitle(title: String, isStarred: Boolean)
 
+    @Query("UPDATE question_history SET isStarred = :isStarred WHERE topic = :topic AND conceptTitle = :title")
+    suspend fun updateStarStatusForConcept(topic: String, title: String, isStarred: Boolean)
+
     @Query("SELECT * FROM question_history WHERE topic = :topic ORDER BY answeredAt DESC")
     fun getHistoryByTopic(topic: String): Flow<List<QuestionHistory>>
 
@@ -65,11 +68,11 @@ interface HistoryDao {
     @Query("SELECT topic, SUM(CASE WHEN isCorrect = 1 THEN 1 ELSE 0 END) AS correct, COUNT(*) AS total FROM question_history GROUP BY topic")
     suspend fun getTopicAccuracy(): List<TopicAccuracy>
 
-    @Query("SELECT isCorrect FROM question_history WHERE conceptTitle = :conceptTitle ORDER BY answeredAt DESC LIMIT :limit")
-    suspend fun getRecentCorrectnessForConcept(conceptTitle: String, limit: Int): List<Boolean>
+    @Query("SELECT isCorrect FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle ORDER BY answeredAt DESC LIMIT :limit")
+    suspend fun getRecentCorrectnessForConcept(topic: String, conceptTitle: String, limit: Int): List<Boolean>
 
-    @Query("SELECT answeredAt FROM question_history WHERE conceptTitle = :conceptTitle ORDER BY answeredAt DESC LIMIT :limit")
-    suspend fun getRecentTimestampsForConcept(conceptTitle: String, limit: Int): List<Long>
+    @Query("SELECT answeredAt FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle ORDER BY answeredAt DESC LIMIT :limit")
+    suspend fun getRecentTimestampsForConcept(topic: String, conceptTitle: String, limit: Int): List<Long>
 
     @Query("SELECT COUNT(*) FROM question_history WHERE status = 'RETRY_PENDING' AND topic = :topic")
     suspend fun getPendingRetryCountForTopic(topic: String): Int

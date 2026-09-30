@@ -53,6 +53,9 @@ interface ConceptDao {
     @Query("SELECT * FROM concepts WHERE conceptTitle = :title LIMIT 1")
     suspend fun getConceptByTitle(title: String): ConceptItem?
 
+    @Query("SELECT * FROM concepts WHERE topic = :topic AND conceptTitle = :title LIMIT 1")
+    suspend fun getConceptByTopicAndTitle(topic: String, title: String): ConceptItem?
+
     @Query("SELECT * FROM concepts WHERE id = :id LIMIT 1")
     suspend fun getConceptById(id: Long): ConceptItem?
 
@@ -61,6 +64,9 @@ interface ConceptDao {
 
     @Query("UPDATE concepts SET isStarred = :isStarred WHERE conceptTitle = :title")
     suspend fun updateStarStatusByTitle(title: String, isStarred: Boolean)
+
+    @Query("UPDATE concepts SET isStarred = :isStarred WHERE topic = :topic AND conceptTitle = :title")
+    suspend fun updateStarStatusForConcept(topic: String, title: String, isStarred: Boolean)
 
     @Query("SELECT COUNT(*) FROM concepts WHERE isUsed = 0")
     fun getUnusedCount(): Flow<Int>
@@ -82,6 +88,12 @@ interface ConceptDao {
 
     @Query("SELECT * FROM concepts WHERE isUsed = 0 AND topic IN (:topics) AND conceptTitle NOT IN (:recentTitles) ORDER BY RANDOM() LIMIT 1")
     suspend fun getNextUnusedConceptForTopicsExcludingRecent(topics: List<String>, recentTitles: List<String>): ConceptItem?
+
+    @Query("SELECT * FROM concepts WHERE isUsed = 1 ORDER BY masteryScore ASC, id DESC LIMIT 1")
+    suspend fun getRecycledReviewConcept(): ConceptItem?
+
+    @Query("SELECT * FROM concepts WHERE isUsed = 1 AND topic IN (:topics) ORDER BY masteryScore ASC, id DESC LIMIT 1")
+    suspend fun getRecycledReviewConceptForTopics(topics: List<String>): ConceptItem?
 
     @Query("DELETE FROM concepts WHERE isUsed = 0")
     suspend fun clearUnusedConcepts()

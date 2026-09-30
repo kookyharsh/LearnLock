@@ -22,6 +22,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material.icons.filled.Warning
@@ -34,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -66,6 +69,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private data class HistoryEntry(
+    val item: QuestionHistory,
+    val retryItem: QuestionHistory?,
+    val attemptCount: Int,
+)
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(
@@ -79,14 +88,43 @@ fun HistoryScreen(
 
     var selectedTopicFilter by rememberSaveable { mutableStateOf("All") }
     var selectedStatusFilter by rememberSaveable { mutableStateOf("All") }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
     var showClearConfirm by rememberSaveable { mutableStateOf(false) }
 
     // Load the full history: filters and the destructive clear action must see
     // the same data the user sees, not an arbitrary 10-item window.
     val allHistory by db.historyDao().getAllHistory().collectAsState(initial = null)
 
-    val filteredHistory = remember(allHistory, selectedTopicFilter, selectedStatusFilter) {
-        (allHistory ?: emptyList()).filter { item ->
+    val groupedHistory = remember(allHistory) {
+        (allHistory ?: emptyList())
+            .groupBy { "${it.topic.trim().lowercase()}\u0000${it.conceptTitle.trim().lowercase()}" }
+            .values
+            .map { attempts ->
+                val latest = attempts.maxBy { it.answeredAt }
+                val retry = attempts
+                    .filter { it.status == "RETRY_PENDING" }
+                    .maxByOrNull { it.answeredAt }
+                HistoryEntry(
+                    item = latest.copy(
+                        status = if (retry == null) "PASSED" else "RETRY_PENDING",
+                        isStarred = attempts.any { it.isStarred },
+                    ),
+                    retryItem = retry,
+                    attemptCount = attempts.size,
+                )
+            }
+            .sortedByDescending { it.item.answeredAt }
+    }
+
+    val filteredHistory = remember(
+        groupedHistory,
+        selectedTopicFilter,
+        selectedStatusFilter,
+        searchQuery,
+    ) {
+        val normalizedQuery = searchQuery.trim()
+        groupedHistory.filter { entry ->
+            val item = entry.item
             val matchesTopic =
                 selectedTopicFilter == "All" || item.topic.equals(selectedTopicFilter, ignoreCase = true)
             val matchesStatus = when (selectedStatusFilter) {
@@ -95,7 +133,10 @@ fun HistoryScreen(
                 "STARRED" -> item.isStarred
                 else -> true
             }
-            matchesTopic && matchesStatus
+            val matchesSearch = normalizedQuery.isEmpty() ||
+                item.conceptTitle.contains(normalizedQuery, ignoreCase = true) ||
+                item.topic.contains(normalizedQuery, ignoreCase = true)
+            matchesTopic && matchesStatus && matchesSearch
         }
     }
 
@@ -161,6 +202,27 @@ fun HistoryScreen(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp),
         ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                label = { Text("Search history") },
+                placeholder = { Text("Concept or subject") },
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = null)
+                },
+                trailingIcon = if (searchQuery.isNotEmpty()) {
+                    {
+                        IconButton(onClick = { searchQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = "Clear search")
+                        }
+                    }
+                } else null,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
             LazyRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth(),
@@ -249,7 +311,11 @@ fun HistoryScreen(
                                 text = if (allHistory!!.isEmpty()) {
                                     "No question attempts recorded yet.\nUnlock your phone to start learning!"
                                 } else {
-                                    "No history matches your selected filters."
+                                    if (searchQuery.isBlank()) {
+                                        "No history matches your selected filters."
+                                    } else {
+                                        "No concepts match “${searchQuery.trim()}”."
+                                    }
                                 },
                                 style = type.bodyMedium,
                                 color = colors.onSurfaceVariant,
@@ -261,22 +327,32 @@ fun HistoryScreen(
                     else -> {
                         HistoryList(
                             historyList = filteredHistory,
-                            onItemClick = { historyItem -> onOpenDetail(historyItem.id) },
-                            onRetryItem = { historyItem ->
+                            onItemClick = { entry -> onOpenDetail(entry.item.id) },
+                            onRetryItem = { entry ->
+                                val retryItem = requireNotNull(entry.retryItem)
                                 val intent = Intent(context, UnlockQuizActivity::class.java).apply {
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                     putExtra(
                                         UnlockQuizActivity.EXTRA_RETRY_HISTORY_ID,
-                                        historyItem.id,
+                                        retryItem.id,
                                     )
                                 }
                                 context.startActivity(intent)
                             },
-                        ) { historyItem ->
+                        ) { entry ->
+                            val historyItem = entry.item
                             val newStar = !historyItem.isStarred
                             coroutineScope.launch {
-                                db.historyDao().updateStarStatus(historyItem.id, newStar)
-                                db.conceptDao().updateStarStatusByTitle(historyItem.conceptTitle, newStar)
+                                db.historyDao().updateStarStatusForConcept(
+                                    historyItem.topic,
+                                    historyItem.conceptTitle,
+                                    newStar,
+                                )
+                                db.conceptDao().updateStarStatusForConcept(
+                                    historyItem.topic,
+                                    historyItem.conceptTitle,
+                                    newStar,
+                                )
                             }
                         }
                     }
@@ -288,10 +364,10 @@ fun HistoryScreen(
 
 @Composable
 private fun HistoryList(
-    historyList: List<QuestionHistory>,
-    onItemClick: (QuestionHistory) -> Unit,
-    onRetryItem: (QuestionHistory) -> Unit,
-    onToggleStar: (QuestionHistory) -> Unit,
+    historyList: List<HistoryEntry>,
+    onItemClick: (HistoryEntry) -> Unit,
+    onRetryItem: (HistoryEntry) -> Unit,
+    onToggleStar: (HistoryEntry) -> Unit,
 ) {
     val sdf = remember { SimpleDateFormat("MMM dd, HH:mm", Locale.getDefault()) }
     val colors = MaterialTheme.colorScheme
@@ -301,8 +377,13 @@ private fun HistoryList(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        items(historyList, key = { it.id }) { item ->
-            val statusColor = if (item.isCorrect) SuccessGreen else ErrorRed
+        items(
+            historyList,
+            key = { "${it.item.topic}\u0000${it.item.conceptTitle}" },
+        ) { entry ->
+            val item = entry.item
+            val isRetryPending = entry.retryItem != null
+            val statusColor = if (isRetryPending) ErrorRed else SuccessGreen
             val answerSegments = remember(item.id, item.userAnswer) {
                 splitAnswerSegments(item.userAnswer)
             }
@@ -312,7 +393,7 @@ private fun HistoryList(
                 modifier = Modifier
                     .fillMaxWidth()
                     .clip(MaterialTheme.shapes.medium)
-                    .clickable { onItemClick(item) },
+                    .clickable { onItemClick(entry) },
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -326,17 +407,17 @@ private fun HistoryList(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Icon(
-                                imageVector = if (item.isCorrect) {
-                                    Icons.Default.CheckCircle
-                                } else {
+                                imageVector = if (isRetryPending) {
                                     Icons.Default.Warning
+                                } else {
+                                    Icons.Default.CheckCircle
                                 },
                                 contentDescription = null,
                                 tint = statusColor,
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
-                                text = if (item.isCorrect) "Passed" else "Retry pending",
+                                text = if (isRetryPending) "Retry pending" else "Passed",
                                 style = type.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = statusColor,
@@ -344,7 +425,7 @@ private fun HistoryList(
                         }
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            IconButton(onClick = { onToggleStar(item) }) {
+                            IconButton(onClick = { onToggleStar(entry) }) {
                                 Icon(
                                     imageVector = if (item.isStarred) {
                                         Icons.Default.Star
@@ -385,6 +466,15 @@ private fun HistoryList(
                         style = type.bodyMedium,
                         color = colors.onSurfaceVariant,
                     )
+
+                    if (entry.attemptCount > 1) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "${entry.attemptCount} attempts",
+                            style = type.labelSmall,
+                            color = colors.onSurfaceVariant,
+                        )
+                    }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
@@ -430,10 +520,10 @@ private fun HistoryList(
                         )
                     }
 
-                    if (!item.isCorrect) {
+                    if (isRetryPending) {
                         Spacer(modifier = Modifier.height(12.dp))
                         OutlinedButton(
-                            onClick = { onRetryItem(item) },
+                            onClick = { onRetryItem(entry) },
                             modifier = Modifier.fillMaxWidth(),
                         ) {
                             Icon(
