@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -25,6 +26,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -35,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,14 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.TutorState
 import com.example.data.preferences.AppPreferencesManager
-import com.example.ui.theme.DarkBackground
-import com.example.ui.theme.DarkBorder
-import com.example.ui.theme.DarkSurface
-import com.example.ui.theme.ElegantOnPrimary
-import com.example.ui.theme.ElegantPrimary
-import com.example.ui.theme.ErrorRed
-import com.example.ui.theme.TextPrimary
-import com.example.ui.theme.TextSecondary
+import com.example.data.preferences.ThemeMode
 import com.example.ui.theme.UnlockLearnTheme
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -60,12 +56,25 @@ class TutorSnoozeActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge(
-            statusBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-            navigationBarStyle = androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
-        )
         setContent {
-            UnlockLearnTheme {
+            val themeMode = remember { AppPreferencesManager(this).getThemeMode() }
+            val darkTheme = when (themeMode) {
+                ThemeMode.SYSTEM -> isSystemInDarkTheme()
+                ThemeMode.LIGHT -> false
+                ThemeMode.DARK -> true
+            }
+            SideEffect {
+                val style = if (darkTheme) {
+                    androidx.activity.SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                } else {
+                    androidx.activity.SystemBarStyle.light(
+                        android.graphics.Color.TRANSPARENT,
+                        android.graphics.Color.TRANSPARENT,
+                    )
+                }
+                enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = style)
+            }
+            UnlockLearnTheme(themeMode = themeMode) {
                 SnoozeContent(
                     onClose = { finish() }
                 )
@@ -87,6 +96,7 @@ private fun SnoozeContent(onClose: () -> Unit) {
     val isPaused = TutorState.isPaused(enabled, disabledUntil, now)
 
     var minutes by remember { mutableIntStateOf(60) }
+    val colors = MaterialTheme.colorScheme
 
     val timeFormatter = SimpleDateFormat("h:mm a", Locale.getDefault())
     val pauseUntil = remember(minutes) {
@@ -111,7 +121,7 @@ private fun SnoozeContent(onClose: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(DarkBackground)
+            .background(colors.background)
             .padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
@@ -122,21 +132,21 @@ private fun SnoozeContent(onClose: () -> Unit) {
         ) {
             Text(
                 text = "Tutor Controls",
-                color = TextPrimary,
+                color = colors.onBackground,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold
             )
             Icon(
                 imageVector = Icons.Default.Pause,
                 contentDescription = null,
-                tint = ElegantPrimary,
+                tint = colors.primary,
                 modifier = Modifier.size(24.dp)
             )
         }
 
         Card(
             shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerHigh),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
@@ -146,7 +156,7 @@ private fun SnoozeContent(onClose: () -> Unit) {
                         isActive -> "Tutor is ON"
                         else -> "Tutor is OFF"
                     },
-                    color = if (isActive) ElegantPrimary else TextSecondary,
+                    color = if (isActive) colors.primary else colors.onSurfaceVariant,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -155,7 +165,7 @@ private fun SnoozeContent(onClose: () -> Unit) {
 
                 Text(
                     text = "Keep tutor off for",
-                    color = TextPrimary,
+                    color = colors.onSurface,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )
@@ -164,7 +174,7 @@ private fun SnoozeContent(onClose: () -> Unit) {
 
                 Text(
                     text = formatDuration(minutes),
-                    color = ElegantPrimary,
+                    color = colors.primary,
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold
                 )
@@ -175,9 +185,9 @@ private fun SnoozeContent(onClose: () -> Unit) {
                     valueRange = MINUTES_RANGE,
                     steps = 95,
                     colors = SliderDefaults.colors(
-                        thumbColor = ElegantPrimary,
-                        activeTrackColor = ElegantPrimary,
-                        inactiveTrackColor = DarkBackground
+                        thumbColor = colors.primary,
+                        activeTrackColor = colors.primary,
+                        inactiveTrackColor = colors.surfaceContainerHighest,
                     ),
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -188,12 +198,12 @@ private fun SnoozeContent(onClose: () -> Unit) {
                 ) {
                     Text(
                         text = "15 min",
-                        color = TextSecondary,
+                        color = colors.onSurfaceVariant,
                         fontSize = 11.sp
                     )
                     Text(
                         text = "24 h",
-                        color = TextSecondary,
+                        color = colors.onSurfaceVariant,
                         fontSize = 11.sp
                     )
                 }
@@ -202,11 +212,11 @@ private fun SnoozeContent(onClose: () -> Unit) {
 
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = ElegantPrimary.copy(alpha = 0.12f)
+                    color = colors.primaryContainer,
                 ) {
                     Text(
                         text = "Tutor returns at ${timeFormatter.format(pauseUntil)}",
-                        color = ElegantPrimary,
+                        color = colors.onPrimaryContainer,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
@@ -222,8 +232,8 @@ private fun SnoozeContent(onClose: () -> Unit) {
             },
             shape = CircleShape,
             colors = ButtonDefaults.buttonColors(
-                containerColor = ElegantPrimary,
-                contentColor = ElegantOnPrimary
+                containerColor = colors.primary,
+                contentColor = colors.onPrimary,
             ),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -235,8 +245,8 @@ private fun SnoozeContent(onClose: () -> Unit) {
         OutlinedButton(
             onClick = { applyAction(true, 0L) },
             shape = CircleShape,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = ElegantPrimary),
-            border = androidx.compose.foundation.BorderStroke(1.dp, ElegantPrimary),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.primary),
+            border = androidx.compose.foundation.BorderStroke(1.dp, colors.outline),
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(18.dp))
@@ -247,8 +257,8 @@ private fun SnoozeContent(onClose: () -> Unit) {
         OutlinedButton(
             onClick = { applyAction(false, 0L) },
             shape = CircleShape,
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = ErrorRed),
-            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.error),
+            border = androidx.compose.foundation.BorderStroke(1.dp, colors.outline),
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(18.dp))
