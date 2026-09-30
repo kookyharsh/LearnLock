@@ -14,11 +14,11 @@ jobs:
   build-debug:
     name: Build Debug APK
     if: github.ref_type == 'branch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
@@ -30,7 +30,7 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: platform-tools "platforms;android-36.1" "build-tools;36.1.0"
 
@@ -62,13 +62,13 @@ jobs:
   build-release:
     name: Build Release APK
     if: github.ref_type == 'tag' && startsWith(github.ref_name, 'v')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Make Gradle wrapper executable
         run: chmod +x gradlew
@@ -80,7 +80,7 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
         with:
           packages: platform-tools "platforms;android-36.1" "build-tools;36.1.0"
 
@@ -132,7 +132,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           name: LearnLock ${{ github.ref_name }}
           files: app/build/outputs/apk/release/*.apk
