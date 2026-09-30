@@ -32,7 +32,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: platform-tools "platforms;android-36.1" "build-tools;36.1.0"
+          packages: platform-tools platforms;android-36.1 build-tools;36.1.0
 
       - name: Cache Gradle dependencies
         uses: actions/cache@v4
@@ -82,7 +82,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
         with:
-          packages: platform-tools "platforms;android-36.1" "build-tools;36.1.0"
+          packages: platform-tools platforms;android-36.1 build-tools;36.1.0
 
       - name: Cache Gradle dependencies
         uses: actions/cache@v4
