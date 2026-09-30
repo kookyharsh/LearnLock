@@ -46,7 +46,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.data.preferences.AppPreferencesManager
 import com.example.data.preferences.ThemeMode
-import com.example.service.GeminiConceptGenerator
+import com.example.service.ConceptGenerator
 import com.example.service.TutorTileService
 import kotlinx.coroutines.launch
 
@@ -320,7 +320,7 @@ fun SettingsScreen(
                                 isTestingKey = true
                                 keyTestError = null
                                 try {
-                                    val generator = GeminiConceptGenerator(prefsManager)
+                                    val generator = ConceptGenerator(prefsManager)
                                     val (ok, message) = generator.testApiKeyConnection()
                                     if (ok) {
                                         snackbarHostState.showSnackbar(message)

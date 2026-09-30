@@ -149,7 +149,7 @@ class UnlockReceiver : BroadcastReceiver() {
                     if ((unusedCount < 3 || dueCount < 2) && apiKey.isNotBlank()) {
                         Log.d("UnlockReceiver", "Queue low (unused=$unusedCount, due=$dueCount). Generating concepts via AI...")
                         val selectedTopics = prefsManager.getSelectedTopics()
-                        val generator = GeminiConceptGenerator(prefsManager)
+                        val generator = ConceptGenerator(prefsManager)
 
                         // Target the weakest topic with mastery-resolved difficulty
                         val weakestTopic = resolveWeakestTopic(db, selectedTopics.toList())

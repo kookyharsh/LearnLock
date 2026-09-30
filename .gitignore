@@ -19,3 +19,12 @@ debug.keystore
 *.jks
 *.keystore
 google-services.json
+# Local AI/agent tooling (opencode) - not part of the app
+.agents/
+package.json
+pnpm-lock.yaml
+skills-lock.json
+# Session transcripts
+session-*.md
+# Local release test outputs
+app/release/

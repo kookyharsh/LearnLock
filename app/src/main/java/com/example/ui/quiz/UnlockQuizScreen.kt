@@ -292,7 +292,7 @@ fun UnlockQuizScreen(
 
                 // If no pre-generated concept matches, generate a fresh AI concept
                 if (concept == null && prefsManager.getApiKey().isNotBlank()) {
-                    val generator = com.example.service.GeminiConceptGenerator(prefsManager)
+                    val generator = com.example.service.ConceptGenerator(prefsManager)
                     val fresh = generator.generateBatchConcepts(
                         topics = prefsManager.getSelectedTopics(),
                         count = 1
@@ -1009,215 +1009,239 @@ fun UnlockQuizScreen(
                 }
 
                 Surface(
-                    color = colors.surfaceContainer,
-                    tonalElevation = 3.dp,
-                    modifier = Modifier.fillMaxWidth(),
+                    color = colors.background,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding(),
                 ) {
-                    Column(
+                    Box(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     ) {
-                if (!isQuizStarted) {
-                    Button(
-                        onClick = { isQuizStarted = true },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 56.dp),
-                    ) {
-                        Text("Start quiz", style = type.titleSmall)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.NavigateNext,
-                            contentDescription = null,
-                        )
-                    }
-                } else if (qIndex < questionsList.size - 1) {
-                    Button(
-                        onClick = { currentQuestionIndex++ },
-                        enabled = isCurrentAnswered,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 56.dp)
-                    ) {
-                        Text(
-                            text = "Next question (${qIndex + 1}/${questionsList.size})",
-                            style = type.titleSmall,
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.NavigateNext,
-                            contentDescription = null
-                        )
-                    }
-                } else {
-                    // Submit All Quiz Questions
-                    Button(
-                        onClick = {
-                            coroutineScope.launch {
-                                var correctCount = 0
-                                var gradableCount = 0
-                                questionsList.forEachIndexed { i, q ->
-                                    if (isQuestionGradable(q)) {
-                                        gradableCount++
-                                        if (isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i])) {
-                                            correctCount++
-                                        }
-                                    }
-                                }
-
-                                val passed = gradableCount > 0 &&
-                                    if (gradableCount > 1) correctCount >= (gradableCount / 2 + 1) else correctCount >= 1
-
-                                val userAnswersList = mutableListOf<String>()
-                                questionsList.forEachIndexed { i, q ->
-                                    if (isTextAnswerQuestion(q)) {
-                                        userAnswersList.add(
-                                            codeAnswers[i]?.trim().takeIf { !it.isNullOrBlank() }
-                                                ?: "Unanswered",
-                                        )
-                                    } else {
-                                        val selIdx = selectedOptionIndices[i] ?: -1
-                                        val ans = q.optionsList.getOrNull(selIdx)
-                                            ?: if (selIdx != -1) selIdx.toString() else "Unanswered"
-                                        userAnswersList.add(ans)
-                                    }
-                                }
-
-                                val formattedUserAnswer = if (userAnswersList.size == 1) {
-                                    userAnswersList.first()
-                                } else {
-                                    userAnswersList.mapIndexed { idx, a -> "Q${idx + 1}: $a" }
-                                        .joinToString(" | ")
-                                }
-
-                                val firstQ = questionsList.first()
-                                val newStatus = if (passed) "PASSED" else "RETRY_PENDING"
-
-                                // Per-question correctness for mastery tracking
-                                val perQuestionResults = JSONArray().apply {
-                                    questionsList.forEachIndexed { i, q ->
-                                        put(JSONObject().apply {
-                                            put("idx", i)
-                                            put("isCorrect", isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i]))
-                                        })
-                                    }
-                                }.toString()
-                                val answeredDifficulty = currentConcept?.difficulty
-                                    ?: pendingRetryItem?.difficulty
-                                    ?: "Medium"
-
-                                // All submit writes are atomic: a crash mid-submit
-                                // cannot leave history and SRS half-applied.
-                                val submitConcept = currentConcept
-                                var masteryAfter: Double? = null
-                                var reviewInterval: Int? = null
-                                var reviewStatus: String? = null
-                                db.withTransaction {
-                                    // Insert QuestionHistory entry (RETRY_PENDING if failed so user can re-practice in History)
-                                    db.historyDao().insertHistory(
-                                        QuestionHistory(
-                                            id = 0,
-                                            conceptTitle = title,
-                                            topic = topic,
-                                            questionText = if (questionsList.size > 1) "${questionsList.size}-Question Quiz ($correctCount/${questionsList.size} Correct)" else firstQ.questionText,
-                                            userAnswer = formattedUserAnswer,
-                                            correctAnswer = firstQ.correctAnswer,
-                                            isCorrect = passed,
-                                            status = newStatus,
-                                            explanation = firstQ.explanation,
-                                            optionsJson = JSONArray(firstQ.optionsList).toString(),
-                                            questionType = firstQ.questionType,
-                                            codeSnippetPrefix = firstQ.codeSnippetPrefix,
-                                            questionsJson = rawQuestionsJson,
-                                            conceptSummary = summary,
-                                            isStarred = isStarred,
-                                            answeredAt = System.currentTimeMillis(),
-                                            perQuestionResultsJson = perQuestionResults,
-                                            difficulty = answeredDifficulty
-                                        )
-                                    )
-
-                                    val currentItem = pendingRetryItem
-                                    if (currentItem != null && passed) {
-                                        // The retried concept is resolved only by passing;
-                                        // a failed retry keeps its RETRY_PENDING status.
-                                        db.historyDao().markConceptPassed(
-                                            currentItem.topic,
-                                            currentItem.conceptTitle,
-                                        )
-                                    }
-
-                                    val concept = submitConcept
-                                    if (concept != null) {
-                                        db.conceptDao().markConceptUsed(concept.id)
-                                        // Spaced-repetition scheduling + mastery update
-                                        val answeredAt = System.currentTimeMillis()
-                                        val srs = AdaptiveScheduler.scheduleAnswer(
-                                            repetitions = concept.repetitions,
-                                            easeFactor = concept.easeFactor,
-                                            intervalDays = concept.intervalDays,
-                                            nextReviewAt = concept.nextReviewAt,
-                                            lapses = concept.lapses,
-                                            passed = passed,
-                                            now = answeredAt
-                                        )
-                                        val recentCorrect = db.historyDao()
-                                            .getRecentCorrectnessForConcept(topic, title, 10)
-                                        val recentTimes = db.historyDao()
-                                            .getRecentTimestampsForConcept(topic, title, 10)
-                                        val mastery = AdaptiveScheduler.computeMastery(
-                                            recentCorrect,
-                                            recentTimes,
-                                            answeredAt
-                                        )
-                                        db.conceptDao().updateReviewState(
-                                            id = concept.id,
-                                            repetitions = srs.repetitions,
-                                            easeFactor = srs.easeFactor,
-                                            intervalDays = srs.intervalDays,
-                                            nextReviewAt = srs.nextReviewAt,
-                                            lapses = srs.lapses,
-                                            masteryScore = mastery
-                                        )
-                                        masteryAfter = mastery
-                                        reviewInterval = srs.intervalDays
-                                        reviewStatus = AdaptiveScheduler.statusOf(
-                                            srs.repetitions,
-                                            srs.intervalDays,
-                                            srs.nextReviewAt
-                                        )
-                                    }
-                                    if (passed) {
-                                        db.historyDao().markConceptPassed(topic, title)
-                                    }
-                                }
-
-                                quizResult = QuizResult(
-                                    passed = passed,
-                                    correctCount = correctCount,
-                                    total = gradableCount,
-                                    masteryBefore = submitConcept?.masteryScore,
-                                    masteryAfter = masteryAfter,
-                                    nextReviewDays = reviewInterval,
-                                    srsStatus = reviewStatus
+                        if (!isQuizStarted) {
+                            Button(
+                                onClick = { isQuizStarted = true },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.primary,
+                                    contentColor = colors.onPrimary,
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 52.dp),
+                            ) {
+                                Text(
+                                    text = "Start quiz",
+                                    style = type.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.NavigateNext,
+                                    contentDescription = null,
                                 )
                             }
-                        },
-                        enabled = isCurrentAnswered,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 56.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Submit quiz",
-                            style = type.titleSmall,
-                        )
-                    }
+                        } else if (qIndex < questionsList.size - 1) {
+                            Button(
+                                onClick = { currentQuestionIndex++ },
+                                enabled = isCurrentAnswered,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.primary,
+                                    contentColor = colors.onPrimary,
+                                    disabledContainerColor = colors.surfaceContainerHigh,
+                                    disabledContentColor = colors.onSurfaceVariant.copy(alpha = 0.5f),
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 52.dp),
+                            ) {
+                                Text(
+                                    text = "Next question (${qIndex + 1}/${questionsList.size})",
+                                    style = type.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.NavigateNext,
+                                    contentDescription = null,
+                                )
+                            }
+                        } else {
+                            // Submit All Quiz Questions
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        var correctCount = 0
+                                        var gradableCount = 0
+                                        questionsList.forEachIndexed { i, q ->
+                                            if (isQuestionGradable(q)) {
+                                                gradableCount++
+                                                if (isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i])) {
+                                                    correctCount++
+                                                }
+                                            }
+                                        }
+
+                                        val passed = gradableCount > 0 &&
+                                            if (gradableCount > 1) correctCount >= (gradableCount / 2 + 1) else correctCount >= 1
+
+                                        val userAnswersList = mutableListOf<String>()
+                                        questionsList.forEachIndexed { i, q ->
+                                            if (isTextAnswerQuestion(q)) {
+                                                userAnswersList.add(
+                                                    codeAnswers[i]?.trim().takeIf { !it.isNullOrBlank() }
+                                                        ?: "Unanswered",
+                                                )
+                                            } else {
+                                                val selIdx = selectedOptionIndices[i] ?: -1
+                                                val ans = q.optionsList.getOrNull(selIdx)
+                                                    ?: if (selIdx != -1) selIdx.toString() else "Unanswered"
+                                                userAnswersList.add(ans)
+                                            }
+                                        }
+
+                                        val formattedUserAnswer = if (userAnswersList.size == 1) {
+                                            userAnswersList.first()
+                                        } else {
+                                            userAnswersList.mapIndexed { idx, a -> "Q${idx + 1}: $a" }
+                                                .joinToString(" | ")
+                                        }
+
+                                        val firstQ = questionsList.first()
+                                        val newStatus = if (passed) "PASSED" else "RETRY_PENDING"
+
+                                        // Per-question correctness for mastery tracking
+                                        val perQuestionResults = JSONArray().apply {
+                                            questionsList.forEachIndexed { i, q ->
+                                                put(JSONObject().apply {
+                                                    put("idx", i)
+                                                    put("isCorrect", isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i]))
+                                                })
+                                            }
+                                        }.toString()
+                                        val answeredDifficulty = currentConcept?.difficulty
+                                            ?: pendingRetryItem?.difficulty
+                                            ?: "Medium"
+
+                                        // All submit writes are atomic: a crash mid-submit
+                                        // cannot leave history and SRS half-applied.
+                                        val submitConcept = currentConcept
+                                        var masteryAfter: Double? = null
+                                        var reviewInterval: Int? = null
+                                        var reviewStatus: String? = null
+                                        db.withTransaction {
+                                            // Insert QuestionHistory entry (RETRY_PENDING if failed so user can re-practice in History)
+                                            db.historyDao().insertHistory(
+                                                QuestionHistory(
+                                                    id = 0,
+                                                    conceptTitle = title,
+                                                    topic = topic,
+                                                    questionText = if (questionsList.size > 1) "${questionsList.size}-Question Quiz ($correctCount/${questionsList.size} Correct)" else firstQ.questionText,
+                                                    userAnswer = formattedUserAnswer,
+                                                    correctAnswer = firstQ.correctAnswer,
+                                                    isCorrect = passed,
+                                                    status = newStatus,
+                                                    explanation = firstQ.explanation,
+                                                    optionsJson = JSONArray(firstQ.optionsList).toString(),
+                                                    questionType = firstQ.questionType,
+                                                    codeSnippetPrefix = firstQ.codeSnippetPrefix,
+                                                    questionsJson = rawQuestionsJson,
+                                                    conceptSummary = summary,
+                                                    isStarred = isStarred,
+                                                    answeredAt = System.currentTimeMillis(),
+                                                    perQuestionResultsJson = perQuestionResults,
+                                                    difficulty = answeredDifficulty
+                                                )
+                                            )
+
+                                            val currentItem = pendingRetryItem
+                                            if (currentItem != null && passed) {
+                                                // The retried concept is resolved only by passing;
+                                                // a failed retry keeps its RETRY_PENDING status.
+                                                db.historyDao().markConceptPassed(
+                                                    currentItem.topic,
+                                                    currentItem.conceptTitle,
+                                                )
+                                            }
+
+                                            val concept = submitConcept
+                                            if (concept != null) {
+                                                db.conceptDao().markConceptUsed(concept.id)
+                                                // Spaced-repetition scheduling + mastery update
+                                                val answeredAt = System.currentTimeMillis()
+                                                val srs = AdaptiveScheduler.scheduleAnswer(
+                                                    repetitions = concept.repetitions,
+                                                    easeFactor = concept.easeFactor,
+                                                    intervalDays = concept.intervalDays,
+                                                    nextReviewAt = concept.nextReviewAt,
+                                                    lapses = concept.lapses,
+                                                    passed = passed,
+                                                    now = answeredAt
+                                                )
+                                                val recentCorrect = db.historyDao()
+                                                    .getRecentCorrectnessForConcept(topic, title, 10)
+                                                val recentTimes = db.historyDao()
+                                                    .getRecentTimestampsForConcept(topic, title, 10)
+                                                val mastery = AdaptiveScheduler.computeMastery(
+                                                    recentCorrect,
+                                                    recentTimes,
+                                                    answeredAt
+                                                )
+                                                db.conceptDao().updateReviewState(
+                                                    id = concept.id,
+                                                    repetitions = srs.repetitions,
+                                                    easeFactor = srs.easeFactor,
+                                                    intervalDays = srs.intervalDays,
+                                                    nextReviewAt = srs.nextReviewAt,
+                                                    lapses = srs.lapses,
+                                                    masteryScore = mastery
+                                                )
+                                                masteryAfter = mastery
+                                                reviewInterval = srs.intervalDays
+                                                reviewStatus = AdaptiveScheduler.statusOf(
+                                                    srs.repetitions,
+                                                    srs.intervalDays,
+                                                    srs.nextReviewAt
+                                                )
+                                            }
+                                            if (passed) {
+                                                db.historyDao().markConceptPassed(topic, title)
+                                            }
+                                        }
+
+                                        quizResult = QuizResult(
+                                            passed = passed,
+                                            correctCount = correctCount,
+                                            total = gradableCount,
+                                            masteryBefore = submitConcept?.masteryScore,
+                                            masteryAfter = masteryAfter,
+                                            nextReviewDays = reviewInterval,
+                                            srsStatus = reviewStatus
+                                        )
+                                    }
+                                },
+                                enabled = isCurrentAnswered,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.primary,
+                                    contentColor = colors.onPrimary,
+                                    disabledContainerColor = colors.surfaceContainerHigh,
+                                    disabledContentColor = colors.onSurfaceVariant.copy(alpha = 0.5f),
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(min = 52.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Submit quiz",
+                                    style = type.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+                        }
                     }
                 }
                 }
@@ -1235,7 +1259,6 @@ fun UnlockQuizScreen(
             }
         }
     }
-}
 }
 
 @Composable

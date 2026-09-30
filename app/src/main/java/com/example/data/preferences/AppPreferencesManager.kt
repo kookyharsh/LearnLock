@@ -10,7 +10,9 @@ import kotlinx.coroutines.flow.asStateFlow
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
-class AppPreferencesManager(private val context: Context) {
+class AppPreferencesManager(context: Context) {
+
+    private val appContext = context.applicationContext
 
     private val prefs: SharedPreferences by lazy {
         try {
@@ -18,13 +20,13 @@ class AppPreferencesManager(private val context: Context) {
             EncryptedSharedPreferences.create(
                 "secure_app_prefs",
                 masterKeyAlias,
-                context,
+                appContext,
                 EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
                 EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
             )
         } catch (e: Exception) {
             // Fallback if Keystore initialization encounters issue in container environment
-            context.getSharedPreferences("app_prefs_fallback", Context.MODE_PRIVATE)
+            appContext.getSharedPreferences("app_prefs_fallback", Context.MODE_PRIVATE)
         }
     }
 
@@ -32,12 +34,31 @@ class AppPreferencesManager(private val context: Context) {
     val apiKeyFlow: StateFlow<String> = _apiKeyFlow.asStateFlow()
 
     fun getApiKey(): String {
-        return prefs.getString(KEY_API_KEY, "") ?: ""
+        val primaryKey = try {
+            prefs.getString(KEY_API_KEY, "") ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+        if (primaryKey.isNotBlank()) return primaryKey.trim()
+
+        return try {
+            appContext.getSharedPreferences("app_prefs_fallback", Context.MODE_PRIVATE)
+                .getString(KEY_API_KEY, "")?.trim() ?: ""
+        } catch (_: Exception) {
+            ""
+        }
     }
 
     fun setApiKey(key: String) {
-        prefs.edit().putString(KEY_API_KEY, key.trim()).apply()
-        _apiKeyFlow.value = key.trim()
+        val trimmed = key.trim()
+        try {
+            prefs.edit().putString(KEY_API_KEY, trimmed).commit()
+        } catch (_: Exception) {}
+        try {
+            appContext.getSharedPreferences("app_prefs_fallback", Context.MODE_PRIVATE)
+                .edit().putString(KEY_API_KEY, trimmed).commit()
+        } catch (_: Exception) {}
+        _apiKeyFlow.value = trimmed
     }
 
     fun isLearningWindowEnabled(): Boolean {
