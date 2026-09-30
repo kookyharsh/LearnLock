@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
 class AppPreferencesManager(private val context: Context) {
 
     private val prefs: SharedPreferences by lazy {
@@ -150,6 +152,14 @@ class AppPreferencesManager(private val context: Context) {
         prefs.edit().putString(KEY_DIFFICULTY_LEVEL, level.trim()).apply()
     }
 
+    fun getThemeMode(): ThemeMode = runCatching {
+        ThemeMode.valueOf(prefs.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name).orEmpty())
+    }.getOrDefault(ThemeMode.SYSTEM)
+
+    fun setThemeMode(mode: ThemeMode) {
+        prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
+    }
+
     companion object {
         private const val KEY_API_KEY = "api_key"
         private const val KEY_CUSTOM_MODEL = "custom_model"
@@ -166,7 +176,8 @@ class AppPreferencesManager(private val context: Context) {
         private const val KEY_TOUR_COMPLETED = "tour_completed"
         private const val KEY_QUESTIONS_PER_QUIZ = "questions_per_quiz"
         private const val KEY_DIFFICULTY_LEVEL = "difficulty_level"
+        private const val KEY_THEME_MODE = "theme_mode"
 
-        val DEFAULT_TOPICS = emptySet<String>()
+        val DEFAULT_TOPICS = setOf("General Knowledge", "Technology", "History")
     }
 }

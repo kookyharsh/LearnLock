@@ -1,7 +1,9 @@
 package com.example.ui.screens
 
 import android.content.ComponentName
+import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,6 +15,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.Api
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CompassCalibration
 import androidx.compose.material.icons.filled.DeleteForever
@@ -21,6 +25,7 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.automirrored.filled.Subject
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -34,8 +39,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.R
 import com.example.data.preferences.AppPreferencesManager
+import com.example.data.preferences.ThemeMode
 import com.example.service.GeminiConceptGenerator
 import com.example.service.TutorTileService
 import kotlinx.coroutines.launch
@@ -46,6 +56,7 @@ fun SettingsScreen(
     modifier: Modifier = Modifier,
     snackbarHostState: SnackbarHostState,
     onStartTour: (() -> Unit)? = null,
+    onThemeModeChange: (ThemeMode) -> Unit = {},
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -70,6 +81,7 @@ fun SettingsScreen(
 
     var questionsCountInput by rememberSaveable { mutableIntStateOf(prefsManager.getQuestionsPerQuiz()) }
     var difficultyInput by rememberSaveable { mutableStateOf(prefsManager.getDifficultyLevel()) }
+    var themeMode by rememberSaveable { mutableStateOf(prefsManager.getThemeMode()) }
 
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
     var conceptCount by remember { mutableStateOf<Int?>(null) }
@@ -188,6 +200,46 @@ fun SettingsScreen(
                 .padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
+            SettingsSection(
+                title = "Appearance",
+                description = "Choose how LearnLock follows your device theme.",
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    ThemeMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = themeMode == mode,
+                            onClick = {
+                                themeMode = mode
+                                prefsManager.setThemeMode(mode)
+                                onThemeModeChange(mode)
+                            },
+                            label = {
+                                Text(
+                                    when (mode) {
+                                        ThemeMode.SYSTEM -> "System"
+                                        ThemeMode.LIGHT -> "Light"
+                                        ThemeMode.DARK -> "Dark"
+                                    },
+                                )
+                            },
+                            leadingIcon = if (themeMode == mode) {
+                                {
+                                    Icon(
+                                        imageVector = Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            } else null,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+
             // Credentials are a discrete interactive group: keep one card.
             Card(
                 colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerHigh),
@@ -441,9 +493,56 @@ fun SettingsScreen(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
+                val suggestedTopics = listOf(
+                    "General Knowledge", "Technology", "History",
+                    "Science", "Mathematics", "Computer Science", "Geography", "Literature"
+                )
+                Text(
+                    text = "Suggested subjects (tap to toggle):",
+                    style = type.labelMedium,
+                    color = colors.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    suggestedTopics.forEach { suggested ->
+                        val isAdded = selectedTopics.contains(suggested)
+                        FilterChip(
+                            selected = isAdded,
+                            onClick = {
+                                val updated = selectedTopics.toMutableSet()
+                                if (isAdded) updated.remove(suggested) else updated.add(suggested)
+                                selectedTopics = updated
+                                prefsManager.setSelectedTopics(updated)
+                            },
+                            label = { Text(suggested) },
+                            leadingIcon = {
+                                if (isAdded) {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            },
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Text(
+                    text = "Active selected subjects:",
+                    style = type.labelMedium,
+                    color = colors.onSurfaceVariant,
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+
                 if (selectedTopics.isEmpty()) {
                     Text(
-                        text = "No topics yet. Add your first subject above.",
+                        text = "No topics selected. Tap a subject above or add custom topics.",
                         style = type.bodySmall,
                         color = colors.onSurfaceVariant,
                     )
@@ -577,6 +676,60 @@ fun SettingsScreen(
                             fontWeight = FontWeight.Bold,
                         )
                     }
+                }
+            }
+
+            var hasOverlayPermission by remember {
+                mutableStateOf(Settings.canDrawOverlays(context))
+            }
+            val lifecycleOwner = LocalLifecycleOwner.current
+            DisposableEffect(lifecycleOwner) {
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) {
+                        hasOverlayPermission = Settings.canDrawOverlays(context)
+                    }
+                }
+                lifecycleOwner.lifecycle.addObserver(observer)
+                onDispose {
+                    lifecycleOwner.lifecycle.removeObserver(observer)
+                }
+            }
+
+            SettingsSection(
+                title = "Display over other apps permission",
+                description = if (hasOverlayPermission) {
+                    "Granted: Unlock & Learn can automatically pop up quiz concepts over your lock screen on unlock."
+                } else {
+                    "Required: Allows LearnLock to show questions when you unlock your phone."
+                },
+            ) {
+                OutlinedButton(
+                    onClick = {
+                        try {
+                            val intent = Intent(
+                                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                "package:${context.packageName}".toUri()
+                            )
+                            context.startActivity(intent)
+                        } catch (_: Exception) {
+                            coroutineScope.launch {
+                                snackbarHostState.showSnackbar("Unable to open overlay settings")
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(
+                        imageVector = if (hasOverlayPermission) Icons.Default.CheckCircle else Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = if (hasOverlayPermission) colors.primary else colors.error,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (hasOverlayPermission) "Overlay permission granted ✓" else "Manage overlay permission",
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
             }
 
