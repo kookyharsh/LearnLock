@@ -8,6 +8,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -18,9 +19,45 @@ import com.example.data.preferences.AppPreferencesManager
 
 class UnlockOverlayService : Service() {
 
+    private var unlockReceiver: UnlockReceiver? = null
+
     override fun onCreate() {
         super.onCreate()
         startForegroundNotification()
+        registerUnlockReceiver()
+    }
+
+    private fun registerUnlockReceiver() {
+        if (unlockReceiver == null) {
+            val receiver = UnlockReceiver()
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_USER_PRESENT)
+                addAction(Intent.ACTION_SCREEN_OFF)
+            }
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
+                } else {
+                    registerReceiver(receiver, filter)
+                }
+                unlockReceiver = receiver
+                android.util.Log.d("UnlockOverlayService", "Dynamically registered UnlockReceiver for unlock events")
+            } catch (t: Throwable) {
+                android.util.Log.e("UnlockOverlayService", "Failed to register UnlockReceiver dynamically: ${t.message}")
+            }
+        }
+    }
+
+    private fun unregisterUnlockReceiver() {
+        unlockReceiver?.let { receiver ->
+            try {
+                unregisterReceiver(receiver)
+                android.util.Log.d("UnlockOverlayService", "Unregistered UnlockReceiver")
+            } catch (t: Throwable) {
+                android.util.Log.e("UnlockOverlayService", "Failed to unregister UnlockReceiver: ${t.message}")
+            }
+            unlockReceiver = null
+        }
     }
 
     @SuppressLint("ForegroundServiceType")
@@ -31,10 +68,13 @@ class UnlockOverlayService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 channelId,
-                "Unlock Learning Service",
-                NotificationManager.IMPORTANCE_LOW,
+                "Unlock tutor service",
+                NotificationManager.IMPORTANCE_MIN,
             ).apply {
-                description = "Monitors phone unlocks to show educational CS concepts"
+                description = "Keeps unlock-based learning available"
+                setSound(null, null)
+                enableVibration(false)
+                setShowBadge(false)
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -47,11 +87,15 @@ class UnlockOverlayService : Service() {
         )
 
         val notification: Notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("Unlock & Learn CS Active")
-            .setContentText("Ready with pre-generated CS concepts on unlock")
+            .setContentTitle("LearnLock tutor is active")
+            .setContentText("Tap to manage unlock learning")
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
 
         try {
@@ -89,6 +133,7 @@ class UnlockOverlayService : Service() {
     }
 
     override fun onDestroy() {
+        unregisterUnlockReceiver()
         super.onDestroy()
     }
 

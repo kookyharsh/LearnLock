@@ -1,15 +1,10 @@
 package com.example.service
 
-import android.app.NotificationChannel
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import com.example.R
 import com.example.data.AppDatabase
 import com.example.data.preferences.AppPreferencesManager
 import com.example.data.entity.ConceptItem
@@ -73,59 +68,37 @@ class UnlockReceiver : BroadcastReceiver() {
 
     private fun launchUnlockQuizActivity(context: Context) {
         val quizIntent = Intent(context, UnlockQuizActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or
+                Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
             putExtra("TRIGGERED_BY_UNLOCK", true)
         }
 
-        // Attempt 1: Direct activity start
         try {
             context.startActivity(quizIntent)
+            Log.d("UnlockReceiver", "Successfully launched UnlockQuizActivity directly")
         } catch (e: Exception) {
-            Log.e("UnlockReceiver", "Direct startActivity failed: ${e.message}")
-        }
-
-        // Attempt 2: High priority notification with fullScreenIntent
-        try {
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            val channelId = "unlock_quiz_alert_channel"
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                val channel = NotificationChannel(
-                    channelId,
-                    "Unlock Learning Quiz",
-                    NotificationManager.IMPORTANCE_HIGH
-                ).apply {
-                    description = "Pops up CS concepts automatically when unlocking phone"
-                    lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-                }
-                notificationManager.createNotificationChannel(channel)
-            }
-
-            val pendingIntent = PendingIntent.getActivity(
-                context,
-                2002,
-                quizIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            val notification = NotificationCompat.Builder(context, channelId)
-                .setSmallIcon(R.drawable.ic_launcher_foreground)
-                .setContentTitle("Unlock & Learn CS")
-                .setContentText("Tap to solve your 30s CS micro-quiz!")
-                .setPriority(NotificationCompat.PRIORITY_MAX)
-                .setCategory(NotificationCompat.CATEGORY_CALL)
-                .setFullScreenIntent(pendingIntent, true)
-                .setAutoCancel(true)
-                .setContentIntent(pendingIntent)
-                .build()
-
-            notificationManager.notify(2002, notification)
-        } catch (e: Exception) {
-            Log.e("UnlockReceiver", "Notification popup trigger error: ${e.message}")
+            Log.e("UnlockReceiver", "Failed to launch UnlockQuizActivity: ${e.message}", e)
         }
     }
 
     companion object {
+        private fun parseMinutesOfDay(timeStr: String): Int? {
+            return try {
+                val trimmed = timeStr.trim()
+                val is12Hour = trimmed.contains("AM", ignoreCase = true) || trimmed.contains("PM", ignoreCase = true)
+                val formatStr = if (is12Hour) "hh:mm a" else "HH:mm"
+                val sdf = SimpleDateFormat(formatStr, Locale.US)
+                val date = sdf.parse(trimmed) ?: return null
+                val cal = Calendar.getInstance().apply { time = date }
+                cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+            } catch (_: Exception) {
+                null
+            }
+        }
+
         fun shouldTriggerLearning(prefsManager: AppPreferencesManager): Boolean {
             if (!prefsManager.isLearningWindowEnabled()) return true
 
@@ -133,28 +106,17 @@ class UnlockReceiver : BroadcastReceiver() {
                 val startStr = prefsManager.getLearningWindowStart()
                 val endStr = prefsManager.getLearningWindowEnd()
 
-                val sdf12 = SimpleDateFormat("hh:mm a", Locale.getDefault())
-                val sdf24 = SimpleDateFormat("HH:mm", Locale.getDefault())
+                val startMinutes = parseMinutesOfDay(startStr)
+                val endMinutes = parseMinutesOfDay(endStr)
 
-                val nowStr = sdf12.format(Calendar.getInstance().time)
-                val nowTime = sdf12.parse(nowStr)
+                val cal = Calendar.getInstance()
+                val nowMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
 
-                val parseTimeStr = { str: String ->
-                    if (str.contains("AM") || str.contains("PM")) {
-                        sdf12.parse(str)
+                if (startMinutes != null && endMinutes != null) {
+                    val inWindow = if (startMinutes <= endMinutes) {
+                        nowMinutes in startMinutes..endMinutes
                     } else {
-                        sdf24.parse(str)
-                    }
-                }
-
-                val startTime = parseTimeStr(startStr)
-                val endTime = parseTimeStr(endStr)
-
-                if (nowTime != null && startTime != null && endTime != null) {
-                    val inWindow = if (startTime.before(endTime)) {
-                        nowTime in startTime..endTime
-                    } else {
-                        nowTime >= startTime || nowTime <= endTime
+                        nowMinutes >= startMinutes || nowMinutes <= endMinutes
                     }
                     return inWindow
                 }
