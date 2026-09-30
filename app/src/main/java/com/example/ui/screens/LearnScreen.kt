@@ -1,8 +1,11 @@
 package com.example.ui.screens
 
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,10 +22,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.StarBorder
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -31,13 +38,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,9 +60,14 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.example.data.AppDatabase
 import com.example.data.preferences.AppPreferencesManager
-import com.example.service.GeminiConceptGenerator
+import com.example.service.ConceptGenerationCoordinator
+import com.example.service.ConceptGenerationState
 import com.example.service.UnlockOverlayService
 import com.example.service.TutorTileService
 import com.example.ui.theme.GoldStar
@@ -74,12 +86,41 @@ fun LearnScreen(
     val coroutineScope = rememberCoroutineScope()
 
     var isServiceEnabled by rememberSaveable { mutableStateOf(prefsManager.isUnlockServiceEnabled()) }
-    var isGeneratingConcepts by rememberSaveable { mutableStateOf(value = false) }
-    // null = still loading; empty = loaded but nothing viewed yet.
-    val recentHistory by db.historyDao().getRecentlyViewedHistory(10).collectAsState(initial = null)
+    val generationState by ConceptGenerationCoordinator.state.collectAsState()
+    val isGeneratingConcepts = generationState is ConceptGenerationState.Running
+    var scheduleEnabled by remember { mutableStateOf(prefsManager.isLearningWindowEnabled()) }
+    var windowStartRaw by remember { mutableStateOf(prefsManager.getLearningWindowStart()) }
+    var windowEndRaw by remember { mutableStateOf(prefsManager.getLearningWindowEnd()) }
 
-    val windowStartRaw = prefsManager.getLearningWindowStart()
-    val windowEndRaw = prefsManager.getLearningWindowEnd()
+    var hasOverlayPermission by remember {
+        mutableStateOf(Settings.canDrawOverlays(context))
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                hasOverlayPermission = Settings.canDrawOverlays(context)
+                scheduleEnabled = prefsManager.isLearningWindowEnabled()
+                windowStartRaw = prefsManager.getLearningWindowStart()
+                windowEndRaw = prefsManager.getLearningWindowEnd()
+                if (prefsManager.isUnlockServiceEnabled()) {
+                    UnlockOverlayService.start(context)
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+    // null = still loading; empty = loaded but nothing viewed yet.
+    val allRecentHistory by db.historyDao().getAllHistory().collectAsState(initial = null)
+    val recentHistory = remember(allRecentHistory) {
+        allRecentHistory
+            ?.distinctBy { "${it.topic.trim().lowercase()}\u0000${it.conceptTitle.trim().lowercase()}" }
+            ?.take(10)
+    }
 
     val formatTime = { time: String ->
         try {
@@ -99,45 +140,8 @@ fun LearnScreen(
     val windowStart = formatTime(windowStartRaw)
     val windowEnd = formatTime(windowEndRaw)
 
-    lateinit var triggerConceptGeneration: () -> Unit
-    triggerConceptGeneration = {
-        if (!isGeneratingConcepts) {
-            val apiKey = prefsManager.getApiKey()
-            if (apiKey.isBlank()) {
-                coroutineScope.launch {
-                    snackbarHostState.showSnackbar("Add an API key in Settings first")
-                }
-            } else {
-                coroutineScope.launch {
-                    isGeneratingConcepts = true
-                    try {
-                        val generator = GeminiConceptGenerator(prefsManager)
-                        val newConcepts = generator.generateBatchConcepts(
-                            topics = prefsManager.getSelectedTopics(),
-                            count = 3,
-                        )
-                        if (newConcepts.isNotEmpty()) {
-                            db.conceptDao().insertConcepts(newConcepts)
-                            snackbarHostState.showSnackbar("Generated ${newConcepts.size} new concepts")
-                        } else {
-                            val result = snackbarHostState.showSnackbar(
-                                message = "Generation failed. Check the API key and network.",
-                                actionLabel = "Retry",
-                            )
-                            if (result == SnackbarResult.ActionPerformed) triggerConceptGeneration()
-                        }
-                    } catch (_: Exception) {
-                        val result = snackbarHostState.showSnackbar(
-                            message = "Generation failed. Check the API key and network.",
-                            actionLabel = "Retry",
-                        )
-                        if (result == SnackbarResult.ActionPerformed) triggerConceptGeneration()
-                    } finally {
-                        isGeneratingConcepts = false
-                    }
-                }
-            }
-        }
+    val triggerConceptGeneration = {
+        ConceptGenerationCoordinator.start(context)
     }
 
     val colors = MaterialTheme.colorScheme
@@ -223,22 +227,53 @@ fun LearnScreen(
                         enabled = !isGeneratingConcepts,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        if (isGeneratingConcepts) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(18.dp),
-                                strokeWidth = 2.dp,
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text("Generating concepts…", fontWeight = FontWeight.Bold)
-                        } else {
-                            Icon(
-                                imageVector = Icons.Default.AutoAwesome,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Generate new concepts", fontWeight = FontWeight.Bold)
+                        when (val state = generationState) {
+                            is ConceptGenerationState.Running -> {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp,
+                                    color = colors.onPrimary,
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(state.message, fontWeight = FontWeight.Bold)
+                            }
+                            is ConceptGenerationState.Success -> {
+                                Icon(
+                                    imageVector = Icons.Default.CheckCircle,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("${state.count} concepts added", fontWeight = FontWeight.Bold)
+                            }
+                            is ConceptGenerationState.Error -> {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Retry generation", fontWeight = FontWeight.Bold)
+                            }
+                            ConceptGenerationState.Idle -> {
+                                Icon(
+                                    imageVector = Icons.Default.AutoAwesome,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Generate new concepts", fontWeight = FontWeight.Bold)
+                            }
                         }
+                    }
+
+                    if (generationState is ConceptGenerationState.Error) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = (generationState as ConceptGenerationState.Error).message,
+                            style = type.bodySmall,
+                            color = colors.error,
+                        )
                     }
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -255,15 +290,78 @@ fun LearnScreen(
                         )
                         Column {
                             Text(
-                                text = "Active learning window",
+                                text = if (scheduleEnabled) {
+                                    "Scheduled learning window"
+                                } else {
+                                    "Learning schedule off"
+                                },
                                 style = type.labelMedium,
                                 color = colors.onSurfaceVariant,
                             )
                             Text(
-                                text = "$windowStart – $windowEnd",
+                                text = if (scheduleEnabled) {
+                                    "$windowStart – $windowEnd"
+                                } else {
+                                    "Learn anytime"
+                                },
                                 style = type.titleSmall,
                                 color = colors.onSurface,
                             )
+                        }
+                    }
+                }
+            }
+
+            if (isServiceEnabled && !hasOverlayPermission) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = colors.errorContainer),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = colors.onErrorContainer,
+                            )
+                            Text(
+                                text = "Permission Required",
+                                style = type.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = colors.onErrorContainer,
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "'Display over other apps' permission is required to show quiz concepts automatically when unlocking your device.",
+                            style = type.bodyMedium,
+                            color = colors.onErrorContainer,
+                        )
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                try {
+                                    val intent = Intent(
+                                        Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                        "package:${context.packageName}".toUri()
+                                    )
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Unable to open overlay settings")
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = colors.error,
+                                contentColor = colors.onError,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Grant Permission in Settings", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
