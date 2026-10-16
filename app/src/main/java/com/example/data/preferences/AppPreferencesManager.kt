@@ -173,6 +173,20 @@ class AppPreferencesManager(context: Context) {
         prefs.edit().putString(KEY_DIFFICULTY_LEVEL, level.trim()).apply()
     }
 
+    fun getQuestionTypes(): Set<String> = prefs.getStringSet(KEY_QUESTION_TYPES, null)
+        ?.toSet()
+        ?: setOf("MCQ", "TRUE_FALSE")
+
+    fun setQuestionTypes(types: Set<String>) {
+        if (types.isNotEmpty()) prefs.edit().putStringSet(KEY_QUESTION_TYPES, types.toSet()).apply()
+    }
+
+    fun getDailyXpGoal(): Int = prefs.getInt(KEY_DAILY_XP_GOAL, 40).coerceIn(15, 60)
+
+    fun setDailyXpGoal(goal: Int) {
+        prefs.edit().putInt(KEY_DAILY_XP_GOAL, goal.coerceIn(15, 60)).apply()
+    }
+
     fun getThemeMode(): ThemeMode = runCatching {
         ThemeMode.valueOf(prefs.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name).orEmpty())
     }.getOrDefault(ThemeMode.SYSTEM)
@@ -197,6 +211,8 @@ class AppPreferencesManager(context: Context) {
         private const val KEY_TOUR_COMPLETED = "tour_completed"
         private const val KEY_QUESTIONS_PER_QUIZ = "questions_per_quiz"
         private const val KEY_DIFFICULTY_LEVEL = "difficulty_level"
+        private const val KEY_QUESTION_TYPES = "question_types"
+        private const val KEY_DAILY_XP_GOAL = "daily_xp_goal"
         private const val KEY_THEME_MODE = "theme_mode"
 
         val DEFAULT_TOPICS = setOf("General Knowledge", "Technology", "History")

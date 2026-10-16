@@ -81,6 +81,8 @@ fun SettingsScreen(
 
     var questionsCountInput by rememberSaveable { mutableIntStateOf(prefsManager.getQuestionsPerQuiz()) }
     var difficultyInput by rememberSaveable { mutableStateOf(prefsManager.getDifficultyLevel()) }
+    var questionTypes by remember { mutableStateOf(prefsManager.getQuestionTypes()) }
+    var dailyGoal by rememberSaveable { mutableIntStateOf(prefsManager.getDailyXpGoal()) }
     var themeMode by rememberSaveable { mutableStateOf(prefsManager.getThemeMode()) }
 
     var showDeleteConfirm by rememberSaveable { mutableStateOf(false) }
@@ -238,6 +240,7 @@ fun SettingsScreen(
                         )
                     }
                 }
+
             }
 
             // Credentials are a discrete interactive group: keep one card.
@@ -650,6 +653,49 @@ fun SettingsScreen(
                                 }
                             },
                             label = { Text(level) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+                Text("Question types", style = type.bodyMedium, fontWeight = FontWeight.Medium)
+                Text("Choose the formats you want in unlock quizzes.", style = type.bodySmall, color = colors.onSurfaceVariant)
+                Spacer(modifier = Modifier.height(8.dp))
+                val questionTypeLabels = listOf(
+                    "MCQ" to "Multiple choice", "TRUE_FALSE" to "True / false",
+                    "MULTI_SELECT" to "Multiple select", "FILL_BLANK" to "Fill in the blank",
+                    "SHORT_ANSWER" to "Short answer", "DRAG_BLANK" to "Drag into blanks",
+                    "MATCH_PAIRS" to "Match pairs",
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    questionTypeLabels.forEach { (key, label) ->
+                        FilterChip(
+                            selected = key in questionTypes,
+                            onClick = {
+                                if (key in questionTypes && questionTypes.size > 1) {
+                                    questionTypes = questionTypes - key
+                                    prefsManager.setQuestionTypes(questionTypes)
+                                } else if (key !in questionTypes) {
+                                    questionTypes = questionTypes + key
+                                    prefsManager.setQuestionTypes(questionTypes)
+                                }
+                            },
+                            label = { Text(label) },
+                            leadingIcon = if (key in questionTypes) {
+                                { Icon(Icons.Default.Check, null) }
+                            } else null,
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(20.dp))
+                Text("Daily XP goal", style = type.bodyMedium, fontWeight = FontWeight.Medium)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(15, 40, 60).forEach { goal ->
+                        FilterChip(
+                            selected = dailyGoal == goal,
+                            onClick = { dailyGoal = goal; prefsManager.setDailyXpGoal(goal) },
+                            label = { Text("$goal XP") },
                             modifier = Modifier.weight(1f),
                         )
                     }

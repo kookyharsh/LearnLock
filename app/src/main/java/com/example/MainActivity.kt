@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Quiz
+import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -63,6 +65,7 @@ import com.example.data.preferences.ThemeMode
 import com.example.ui.screens.ConceptDetailScreen
 import com.example.ui.screens.HistoryScreen
 import com.example.ui.screens.LearnScreen
+import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.SettingsScreen
 import com.example.ui.theme.UnlockLearnTheme
 import com.example.ui.tour.CoachmarkOverlay
@@ -109,9 +112,10 @@ class MainActivity : ComponentActivity() {
 }
 
 enum class NavTab(val title: String, val icon: ImageVector, val route: String) {
+    HOME("Home", Icons.Default.Home, "home"),
     LEARN("Learn", Icons.Default.Quiz, "learn"),
-    HISTORY("History", Icons.Default.History, "history"),
-    SETTINGS("API & Setup", Icons.Default.Key, "settings"),
+    STATS("Stats", Icons.Default.BarChart, "history"),
+    SETTINGS("Settings", Icons.Default.Key, "settings"),
 }
 
 private const val DETAIL_ROUTE = "detail/{historyId}"
@@ -147,7 +151,7 @@ fun MainAppScreen(onThemeModeChange: (ThemeMode) -> Unit = {}) {
     val topTabForRoute = NavTab.entries.firstOrNull { it.route == backStackEntry?.destination?.route }
     // Remember the last top-level tab so the detail destination keeps its
     // source tab highlighted (and survives process recreation).
-    var lastTopTabOrdinal by rememberSaveable { mutableIntStateOf(NavTab.LEARN.ordinal) }
+    var lastTopTabOrdinal by rememberSaveable { mutableIntStateOf(NavTab.HOME.ordinal) }
     LaunchedEffect(topTabForRoute) {
         if (topTabForRoute != null) lastTopTabOrdinal = topTabForRoute.ordinal
     }
@@ -156,7 +160,7 @@ fun MainAppScreen(onThemeModeChange: (ThemeMode) -> Unit = {}) {
     LaunchedEffect(activeTourStep) {
         val tab = when (activeTourStep) {
             CoachmarkStep.LEARN_TAB -> NavTab.LEARN
-            CoachmarkStep.HISTORY_TAB -> NavTab.HISTORY
+            CoachmarkStep.HISTORY_TAB -> NavTab.STATS
             CoachmarkStep.SETTINGS_TAB -> NavTab.SETTINGS
             null -> null
         }
@@ -280,7 +284,7 @@ fun MainAppScreen(onThemeModeChange: (ThemeMode) -> Unit = {}) {
         activeTourStep?.let { step ->
             val targetKey = when (step) {
                 CoachmarkStep.LEARN_TAB -> NavTab.LEARN
-                CoachmarkStep.HISTORY_TAB -> NavTab.HISTORY
+                CoachmarkStep.HISTORY_TAB -> NavTab.STATS
                 CoachmarkStep.SETTINGS_TAB -> NavTab.SETTINGS
             }
 
@@ -311,9 +315,12 @@ private fun AppNavHost(
 ) {
     NavHost(
         navController = navController,
-        startDestination = NavTab.LEARN.route,
+        startDestination = NavTab.HOME.route,
         modifier = modifier,
     ) {
+        composable(NavTab.HOME.route) {
+            HomeScreen(onOpenLearn = { navController.navigateToTab(NavTab.LEARN) }, modifier = Modifier.fillMaxSize())
+        }
         composable(NavTab.LEARN.route) {
             LearnScreen(
                 snackbarHostState = snackbarHostState,
@@ -321,7 +328,7 @@ private fun AppNavHost(
                 modifier = Modifier.fillMaxSize(),
             )
         }
-        composable(NavTab.HISTORY.route) {
+        composable(NavTab.STATS.route) {
             HistoryScreen(
                 snackbarHostState = snackbarHostState,
                 onOpenDetail = { historyId -> navController.navigate(detailRoute(historyId)) },

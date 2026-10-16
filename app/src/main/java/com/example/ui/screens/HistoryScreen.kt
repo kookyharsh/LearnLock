@@ -58,6 +58,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import com.example.data.AppDatabase
 import com.example.data.entity.QuestionHistory
 import com.example.service.UnlockQuizActivity
@@ -68,6 +70,7 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.Calendar
 
 private data class HistoryEntry(
     val item: QuestionHistory,
@@ -104,9 +107,17 @@ fun HistoryScreen(
                 val retry = attempts
                     .filter { it.status == "RETRY_PENDING" }
                     .maxByOrNull { it.answeredAt }
+                val pendingReview = attempts
+                    .filter { it.status == "GRADING_PENDING" }
+                    .maxByOrNull { it.answeredAt }
                 HistoryEntry(
                     item = latest.copy(
-                        status = if (retry == null) "PASSED" else "RETRY_PENDING",
+                        status = when {
+                            retry != null -> "RETRY_PENDING"
+                            pendingReview != null -> "GRADING_PENDING"
+                            else -> "PASSED"
+                        },
+                        userAnswer = pendingReview?.userAnswer ?: latest.userAnswer,
                         isStarred = attempts.any { it.isStarred },
                     ),
                     retryItem = retry,
@@ -130,6 +141,7 @@ fun HistoryScreen(
             val matchesStatus = when (selectedStatusFilter) {
                 "PASSED" -> item.status == "PASSED"
                 "RETRY_PENDING" -> item.status == "RETRY_PENDING"
+                "GRADING_PENDING" -> item.status == "GRADING_PENDING"
                 "STARRED" -> item.isStarred
                 else -> true
             }
@@ -181,7 +193,7 @@ fun HistoryScreen(
             .background(colors.background),
     ) {
         TopAppBar(
-            title = { Text("History") },
+            title = { Text("Stats & history") },
             actions = {
                 if (!allHistory.isNullOrEmpty()) {
                     IconButton(onClick = { showClearConfirm = true }) {
@@ -202,6 +214,35 @@ fun HistoryScreen(
                 .padding(horizontal = 16.dp)
                 .padding(bottom = 16.dp),
         ) {
+            val historyItems = allHistory ?: emptyList()
+            val gradedItems = historyItems.filter { it.questionType != "SESSION_SUMMARY" && it.status != "GRADING_PENDING" }
+            val pendingCount = historyItems.count { it.status == "GRADING_PENDING" }
+            Card(colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Question history", style = type.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("${gradedItems.count { it.isCorrect }} correct · ${gradedItems.count { !it.isCorrect }} to retry · $pendingCount pending", style = type.bodySmall, color = colors.onSurfaceVariant)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                        items((13 downTo 0).toList()) { daysAgo ->
+                            val day = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -daysAgo) }
+                            val start = day.apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
+                            val end = start + 24L * 60 * 60 * 1000
+                            val dayItems = historyItems.filter { it.answeredAt in start until end && it.questionType != "SESSION_SUMMARY" }
+                            val cellColor = when {
+                                dayItems.isEmpty() -> colors.surfaceContainerHighest
+                                dayItems.any { it.status == "GRADING_PENDING" } -> colors.tertiaryContainer
+                                dayItems.all { it.isCorrect } -> colors.primaryContainer
+                                dayItems.all { !it.isCorrect } -> colors.errorContainer
+                                else -> colors.secondaryContainer
+                            }
+                            Surface(color = cellColor, shape = MaterialTheme.shapes.small, modifier = Modifier.size(30.dp).semantics {
+                                contentDescription = "${dayItems.size} question attempts ${if (daysAgo == 0) "today" else "$daysAgo days ago"}"
+                            }) { Box(contentAlignment = Alignment.Center) { if (dayItems.isNotEmpty()) Text(dayItems.size.coerceAtMost(9).toString(), style = type.labelSmall) } }
+                        }
+                    }
+                    Text("Recent 14 days", style = type.labelSmall, color = colors.onSurfaceVariant)
+                }
+            }
+            Spacer(modifier = Modifier.height(8.dp))
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
@@ -242,11 +283,12 @@ fun HistoryScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                val statusOptions = listOf("All", "PASSED", "RETRY_PENDING", "STARRED")
+                val statusOptions = listOf("All", "PASSED", "RETRY_PENDING", "GRADING_PENDING", "STARRED")
                 items(statusOptions, key = { it }) { status ->
                     val displayLabel = when (status) {
                         "PASSED" -> "Passed"
                         "RETRY_PENDING" -> "Retry pending"
+                        "GRADING_PENDING" -> "Review pending"
                         "STARRED" -> "Starred"
                         else -> "All"
                     }
@@ -383,7 +425,12 @@ private fun HistoryList(
         ) { entry ->
             val item = entry.item
             val isRetryPending = entry.retryItem != null
-            val statusColor = if (isRetryPending) ErrorRed else SuccessGreen
+            val isReviewPending = item.status == "GRADING_PENDING"
+            val statusColor = when {
+                isRetryPending -> ErrorRed
+                isReviewPending -> colors.tertiary
+                else -> SuccessGreen
+            }
             val answerSegments = remember(item.id, item.userAnswer) {
                 splitAnswerSegments(item.userAnswer)
             }
@@ -407,8 +454,8 @@ private fun HistoryList(
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Icon(
-                                imageVector = if (isRetryPending) {
-                                    Icons.Default.Warning
+                                imageVector = if (isRetryPending) Icons.Default.Warning else if (isReviewPending) {
+                                    Icons.Default.Refresh
                                 } else {
                                     Icons.Default.CheckCircle
                                 },
@@ -417,7 +464,11 @@ private fun HistoryList(
                                 modifier = Modifier.size(16.dp),
                             )
                             Text(
-                                text = if (isRetryPending) "Retry pending" else "Passed",
+                                text = when {
+                                    isRetryPending -> "Retry pending"
+                                    isReviewPending -> "Review pending"
+                                    else -> "Passed"
+                                },
                                 style = type.labelSmall,
                                 fontWeight = FontWeight.Bold,
                                 color = statusColor,

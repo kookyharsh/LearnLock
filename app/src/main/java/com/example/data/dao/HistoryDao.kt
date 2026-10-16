@@ -23,10 +23,13 @@ interface HistoryDao {
     @Update
     suspend fun updateHistory(history: QuestionHistory)
 
-    @Query("UPDATE question_history SET status = 'PASSED' WHERE topic = :topic AND conceptTitle = :conceptTitle AND status = 'RETRY_PENDING'")
-    suspend fun markConceptPassed(topic: String, conceptTitle: String)
+    @Query("UPDATE question_history SET status = :status, isCorrect = :isCorrect WHERE id = :id")
+    suspend fun updateAttemptResult(id: Long, status: String, isCorrect: Boolean)
 
-    @Query("SELECT * FROM question_history WHERE status = 'RETRY_PENDING' ORDER BY answeredAt DESC LIMIT 1")
+    @Query("UPDATE question_history SET status = CASE WHEN :isCorrect = 1 THEN 'PASSED' ELSE 'RETRY_PENDING' END, isCorrect = :isCorrect WHERE id = :id AND status = 'GRADING_PENDING'")
+    suspend fun finishShortAnswerGrading(id: Long, isCorrect: Boolean)
+
+    @Query("SELECT * FROM question_history WHERE status = 'RETRY_PENDING' ORDER BY answeredAt ASC LIMIT 1")
     suspend fun getPendingRetryQuestion(): QuestionHistory?
 
     @Query("SELECT * FROM question_history ORDER BY answeredAt DESC")
@@ -65,10 +68,10 @@ interface HistoryDao {
     @Query("SELECT DISTINCT conceptTitle FROM question_history WHERE answeredAt > :sinceTime")
     suspend fun getRecentConceptTitles(sinceTime: Long): List<String>
 
-    @Query("SELECT topic, SUM(CASE WHEN isCorrect = 1 THEN 1 ELSE 0 END) AS correct, COUNT(*) AS total FROM question_history GROUP BY topic")
+    @Query("SELECT topic, SUM(CASE WHEN isCorrect = 1 THEN 1 ELSE 0 END) AS correct, COUNT(*) AS total FROM question_history WHERE questionType != 'SESSION_SUMMARY' AND status != 'GRADING_PENDING' GROUP BY topic")
     suspend fun getTopicAccuracy(): List<TopicAccuracy>
 
-    @Query("SELECT isCorrect FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle ORDER BY answeredAt DESC LIMIT :limit")
+    @Query("SELECT isCorrect FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle AND questionType != 'SESSION_SUMMARY' AND status != 'GRADING_PENDING' ORDER BY answeredAt DESC LIMIT :limit")
     suspend fun getRecentCorrectnessForConcept(topic: String, conceptTitle: String, limit: Int): List<Boolean>
 
     @Query("SELECT answeredAt FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle ORDER BY answeredAt DESC LIMIT :limit")

@@ -16,6 +16,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.*
@@ -78,7 +79,9 @@ data class QuizQuestion(
     val optionsList: List<String>,
     val codeSnippetPrefix: String?,
     val correctAnswer: String,
-    val explanation: String
+    val explanation: String,
+    val acceptedAnswers: List<String> = emptyList(),
+    val hint: String? = null,
 )
 
 data class QuizResult(
@@ -89,6 +92,7 @@ data class QuizResult(
     val masteryAfter: Double?,
     val nextReviewDays: Int?,
     val srsStatus: String?,
+    val pendingCount: Int = 0,
 )
 
 private val SelectedOptionsSaver: Saver<SnapshotStateMap<Int, Int>, IntArray> = Saver(
@@ -125,6 +129,7 @@ private val QuizResultStateSaver: Saver<MutableState<QuizResult?>, Bundle> = Sav
                 putBoolean("passed", r.passed)
                 putInt("correct", r.correctCount)
                 putInt("total", r.total)
+                putInt("pending", r.pendingCount)
                 r.masteryBefore?.let { putDouble("masteryBefore", it) }
                 r.masteryAfter?.let { putDouble("masteryAfter", it) }
                 r.nextReviewDays?.let { putInt("reviewDays", it) }
@@ -139,6 +144,7 @@ private val QuizResultStateSaver: Saver<MutableState<QuizResult?>, Bundle> = Sav
                     passed = saved.getBoolean("passed"),
                     correctCount = saved.getInt("correct"),
                     total = saved.getInt("total"),
+                    pendingCount = saved.getInt("pending"),
                     masteryBefore = if (saved.containsKey("masteryBefore")) saved.getDouble("masteryBefore") else null,
                     masteryAfter = if (saved.containsKey("masteryAfter")) saved.getDouble("masteryAfter") else null,
                     nextReviewDays = if (saved.containsKey("reviewDays")) saved.getInt("reviewDays") else null,
@@ -174,6 +180,9 @@ fun UnlockQuizScreen(
     // Custom savers keep answers across recreation so progress is never lost.
     val selectedOptionIndices = rememberSaveable(saver = SelectedOptionsSaver) {
         mutableStateMapOf<Int, Int>()
+    }
+    val multiSelections = rememberSaveable(saver = CodeAnswersSaver) {
+        mutableStateMapOf<Int, String>()
     }
     val codeAnswers = rememberSaveable(saver = CodeAnswersSaver) {
         mutableStateMapOf<Int, String>()
@@ -341,7 +350,7 @@ fun UnlockQuizScreen(
     // Dismissing freely is safe before starting or after passing. Any other
     // exit (including a failed attempt) asks for confirmation so progress
     // and the queued retry are never lost by accident.
-    val canDismissFreely = !isQuizStarted || quizResult?.passed == true
+    val canDismissFreely = !isQuizStarted || quizResult != null
     val requestDismiss: () -> Unit = {
         if (canDismissFreely) onDismiss() else showQuitConfirm = true
     }
@@ -496,8 +505,8 @@ fun UnlockQuizScreen(
             val codeExample = currentConcept?.codeExample
 
             val rawQuestionsJson = pendingRetryItem?.questionsJson ?: currentConcept?.questionsJson
-            val questionsList = remember(pendingRetryItem, currentConcept) {
-                parseQuestionsList(
+            val questionsList = remember(pendingRetryItem, currentConcept, prefsManager.getQuestionTypes(), prefsManager.getQuestionsPerQuiz()) {
+                val parsedQuestions = parseQuestionsList(
                     questionsJson = rawQuestionsJson,
                     fallbackQuestionText = pendingRetryItem?.questionText
                         ?: currentConcept?.questionText ?: "Answer the question to proceed.",
@@ -512,6 +521,9 @@ fun UnlockQuizScreen(
                     fallbackExplanation = pendingRetryItem?.explanation
                         ?: currentConcept?.explanation ?: "Correct answer verified!"
                 )
+                val selectedTypes = prefsManager.getQuestionTypes()
+                val eligible = if (pendingRetryItem != null) parsedQuestions else parsedQuestions.filter { it.questionType in selectedTypes }
+                eligible.take(prefsManager.getQuestionsPerQuiz()).ifEmpty { parsedQuestions.take(1) }
             }
 
             val qIndex = currentQuestionIndex.coerceIn(0, questionsList.lastIndex)
@@ -520,6 +532,10 @@ fun UnlockQuizScreen(
             val currentCodeInput = codeAnswers[qIndex] ?: ""
             val isTextInputQuestion = isTextAnswerQuestion(currentQ)
             val isCurrentAnswered = if (isTextInputQuestion) {
+                currentCodeInput.isNotBlank()
+            } else if (currentQ.questionType == "MULTI_SELECT") {
+                (multiSelections[qIndex]?.split(",")?.mapNotNull { it.toIntOrNull() } ?: emptyList()).isNotEmpty()
+            } else if (currentQ.questionType == "DRAG_BLANK") {
                 currentCodeInput.isNotBlank()
             } else {
                 selectedIdx != -1
@@ -781,7 +797,11 @@ fun UnlockQuizScreen(
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
                                     Text(
-                                        text = if (currentQ.questionType == "CODE") "Fill in the code answer" else "Type your answer",
+                                        text = when (currentQ.questionType) {
+                                            "CODE" -> "Fill in the code answer"
+                                            "SHORT_ANSWER" -> "Your answer is reviewed after the quiz"
+                                            else -> "Fill in the blank"
+                                        },
                                         style = type.labelSmall,
                                         fontFamily = FontFamily.Monospace,
                                         color = colors.onSurfaceVariant,
@@ -801,18 +821,64 @@ fun UnlockQuizScreen(
                                     }
                                     OutlinedTextField(
                                         value = currentCodeInput,
-                                        onValueChange = { codeAnswers[qIndex] = it },
+                                        onValueChange = { codeAnswers[qIndex] = it.take(500) },
                                         label = { Text("Your answer") },
                                         placeholder = {
                                             Text("Type answer here…")
                                         },
                                         textStyle = LocalTextStyle.current.copy(
-                                            fontFamily = FontFamily.Monospace,
+                                            fontFamily = if (currentQ.questionType == "CODE") FontFamily.Monospace else FontFamily.Default,
                                         ),
+                                        minLines = if (currentQ.questionType == "SHORT_ANSWER") 4 else 1,
+                                        maxLines = if (currentQ.questionType == "SHORT_ANSWER") 8 else 1,
                                         modifier = Modifier.fillMaxWidth()
                                     )
+                                    if (currentQ.questionType == "SHORT_ANSWER") {
+                                        Text("${currentCodeInput.length}/500", style = type.labelSmall, color = colors.onSurfaceVariant, modifier = Modifier.align(Alignment.End))
+                                    }
                                 }
                             }
+                        } else if (currentQ.questionType == "MULTI_SELECT") {
+                            val selectedSet = multiSelections[qIndex]?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Select all that apply", style = type.labelMedium, color = colors.onSurfaceVariant)
+                                currentQ.optionsList.forEachIndexed { index, option ->
+                                    val checked = index in selectedSet
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(MaterialTheme.shapes.medium)
+                                            .background(if (checked) colors.secondaryContainer else colors.surfaceContainerHigh)
+                                            .clickable {
+                                                val next = if (checked) selectedSet - index else selectedSet + index
+                                                multiSelections[qIndex] = next.sorted().joinToString(",")
+                                            }.padding(horizontal = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                    ) {
+                                        Checkbox(checked = checked, onCheckedChange = { enabled ->
+                                            val next = if (enabled) selectedSet + index else selectedSet - index
+                                            multiSelections[qIndex] = next.sorted().joinToString(",")
+                                        })
+                                        Text(option, style = type.bodyMedium)
+                                    }
+                                }
+                            }
+                        } else if (currentQ.questionType == "DRAG_BLANK") {
+                            val placed = currentCodeInput.split(",").mapNotNull { it.toIntOrNull() }
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text("Tap a choice to place it in the blank", style = type.labelMedium, color = colors.onSurfaceVariant)
+                                currentQ.optionsList.forEachIndexed { index, option ->
+                                    FilterChip(
+                                        selected = index in placed,
+                                        onClick = {
+                                            val next = if (index in placed) placed - index else placed + index
+                                            codeAnswers[qIndex] = next.joinToString(",")
+                                        },
+                                        label = { Text(option) },
+                                        leadingIcon = if (index in placed) {{ Text("${placed.indexOf(index) + 1}") }} else null,
+                                    )
+                                }
+                                if (placed.isNotEmpty()) Text("Placed: ${placed.mapNotNull { currentQ.optionsList.getOrNull(it) }.joinToString(" → ")}", color = colors.primary)
+                            }
+                        } else {
                         } else {
                             Column(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1006,6 +1072,15 @@ fun UnlockQuizScreen(
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
+                if (pendingRetryItem != null && isCurrentAnswered) {
+                    Surface(color = colors.surfaceContainerHigh, shape = MaterialTheme.shapes.medium, modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Previous answer", style = type.labelMedium, color = colors.onSurfaceVariant)
+                            Text(pendingRetryItem!!.userAnswer, style = type.bodyMedium, color = colors.onSurface)
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
                 }
 
                 Surface(
@@ -1072,20 +1147,31 @@ fun UnlockQuizScreen(
                                         var correctCount = 0
                                         var gradableCount = 0
                                         questionsList.forEachIndexed { i, q ->
-                                            if (isQuestionGradable(q)) {
+                                            if (q.questionType != "SHORT_ANSWER" && isQuestionGradable(q)) {
                                                 gradableCount++
-                                                if (isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i])) {
+                                                val correct = if (q.questionType == "MULTI_SELECT") {
+                                                    val selected = multiSelections[i]?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
+                                                    selected.isNotEmpty() && selected == parseIndexAnswer(q.correctAnswer).toSet()
+                                                } else isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i])
+                                                if (correct) {
                                                     correctCount++
                                                 }
                                             }
                                         }
 
-                                        val passed = gradableCount > 0 &&
-                                            if (gradableCount > 1) correctCount >= (gradableCount / 2 + 1) else correctCount >= 1
+                                        // Quiz completion never gates device access. Keep objective
+                                        // correctness for history, XP, and retry scheduling.
+                                        val passed = true
+                                        val objectivePassed = gradableCount > 0 && correctCount == gradableCount
 
                                         val userAnswersList = mutableListOf<String>()
                                         questionsList.forEachIndexed { i, q ->
-                                            if (isTextAnswerQuestion(q)) {
+                                                if (q.questionType == "MULTI_SELECT") {
+                                                    val selected = multiSelections[i]?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
+                                                    userAnswersList.add(selected.sorted().joinToString(",") { q.optionsList.getOrNull(it).orEmpty() }.ifBlank { "Unanswered" })
+                                                } else if (q.questionType == "DRAG_BLANK") {
+                                                    userAnswersList.add(codeAnswers[i]?.split(",")?.mapNotNull { it.toIntOrNull() }?.mapNotNull { q.optionsList.getOrNull(it) }?.joinToString(" → ").orEmpty().ifBlank { "Unanswered" })
+                                                } else if (isTextAnswerQuestion(q)) {
                                                 userAnswersList.add(
                                                     codeAnswers[i]?.trim().takeIf { !it.isNullOrBlank() }
                                                         ?: "Unanswered",
@@ -1134,14 +1220,14 @@ fun UnlockQuizScreen(
                                                     id = 0,
                                                     conceptTitle = title,
                                                     topic = topic,
-                                                    questionText = if (questionsList.size > 1) "${questionsList.size}-Question Quiz ($correctCount/${questionsList.size} Correct)" else firstQ.questionText,
+                                                    questionText = "Quiz session · ${questionsList.size} questions",
                                                     userAnswer = formattedUserAnswer,
                                                     correctAnswer = firstQ.correctAnswer,
-                                                    isCorrect = passed,
-                                                    status = newStatus,
+                                                    isCorrect = correctCount == gradableCount && gradableCount > 0,
+                                                    status = "SESSION_SUMMARY",
                                                     explanation = firstQ.explanation,
                                                     optionsJson = JSONArray(firstQ.optionsList).toString(),
-                                                    questionType = firstQ.questionType,
+                                                    questionType = "SESSION_SUMMARY",
                                                     codeSnippetPrefix = firstQ.codeSnippetPrefix,
                                                     questionsJson = rawQuestionsJson,
                                                     conceptSummary = summary,
@@ -1152,14 +1238,66 @@ fun UnlockQuizScreen(
                                                 )
                                             )
 
-                                            val currentItem = pendingRetryItem
-                                            if (currentItem != null && passed) {
-                                                // The retried concept is resolved only by passing;
-                                                // a failed retry keeps its RETRY_PENDING status.
-                                                db.historyDao().markConceptPassed(
-                                                    currentItem.topic,
-                                                    currentItem.conceptTitle,
+                                            questionsList.forEachIndexed { i, q ->
+                                                val objectiveCorrect = when (q.questionType) {
+                                                    "SHORT_ANSWER" -> false // evaluated after completion
+                                                    "MULTI_SELECT" -> {
+                                                        val selected = multiSelections[i]?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
+                                                        selected.isNotEmpty() && selected == parseIndexAnswer(q.correctAnswer)
+                                                    }
+                                                    "DRAG_BLANK" -> codeAnswers[i]?.split(",")?.mapNotNull { it.toIntOrNull() }?.let { it.isNotEmpty() && it == parseIndexAnswer(q.correctAnswer) } ?: false
+                                                    else -> isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i])
+                                                }
+                                                val answerText = userAnswersList.getOrElse(i) { "Unanswered" }
+                                                db.historyDao().insertHistory(
+                                                    QuestionHistory(
+                                                        conceptTitle = title,
+                                                        topic = topic,
+                                                        questionText = q.questionText,
+                                                        userAnswer = answerText,
+                                                        correctAnswer = q.correctAnswer,
+                                                        isCorrect = objectiveCorrect,
+                                                        status = when {
+                                                            q.questionType == "SHORT_ANSWER" -> "GRADING_PENDING"
+                                                            objectiveCorrect -> "PASSED"
+                                                            else -> "RETRY_PENDING"
+                                                        },
+                                                        explanation = q.explanation,
+                                                        optionsJson = JSONArray(q.optionsList).toString(),
+                                                        questionType = q.questionType,
+                                                        codeSnippetPrefix = q.codeSnippetPrefix,
+                                                        questionsJson = JSONArray().put(JSONObject().apply {
+                                                            put("questionType", q.questionType)
+                                                            put("questionText", q.questionText)
+                                                            put("options", JSONArray(q.optionsList))
+                                                            put("correctAnswer", q.correctAnswer)
+                                                            put("explanation", q.explanation)
+                                                        }).toString(),
+                                                        conceptSummary = summary,
+                                                        isStarred = isStarred,
+                                                        answeredAt = System.currentTimeMillis(),
+                                                        difficulty = answeredDifficulty,
+                                                    ),
                                                 )
+                                            }
+
+                                            val currentItem = pendingRetryItem
+                                            if (currentItem != null) {
+                                                val retriedCorrectly = questionsList.firstOrNull()?.let { q ->
+                                                    when (q.questionType) {
+                                                        "MULTI_SELECT" -> {
+                                                            val selected = multiSelections[0]?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
+                                                            selected.isNotEmpty() && selected == parseIndexAnswer(q.correctAnswer)
+                                                        }
+                                                        "SHORT_ANSWER" -> false
+                                                        else -> isQuestionCorrect(q, selectedOptionIndices[0], codeAnswers[0])
+                                                    }
+                                                } ?: false
+                                                if (retriedCorrectly) {
+                                                    db.historyDao().updateAttemptResult(currentItem.id, "PASSED", true)
+                                                } else {
+                                                    db.historyDao().updateAttemptResult(currentItem.id, "RETRY_RECORDED", false)
+                                                }
                                             }
 
                                             val concept = submitConcept
@@ -1173,7 +1311,7 @@ fun UnlockQuizScreen(
                                                     intervalDays = concept.intervalDays,
                                                     nextReviewAt = concept.nextReviewAt,
                                                     lapses = concept.lapses,
-                                                    passed = passed,
+                                                    passed = objectivePassed,
                                                     now = answeredAt
                                                 )
                                                 val recentCorrect = db.historyDao()
@@ -1202,19 +1340,17 @@ fun UnlockQuizScreen(
                                                     srs.nextReviewAt
                                                 )
                                             }
-                                            if (passed) {
-                                                db.historyDao().markConceptPassed(topic, title)
-                                            }
                                         }
 
                                         quizResult = QuizResult(
                                             passed = passed,
                                             correctCount = correctCount,
-                                            total = gradableCount,
+                                            total = questionsList.size,
                                             masteryBefore = submitConcept?.masteryScore,
                                             masteryAfter = masteryAfter,
                                             nextReviewDays = reviewInterval,
-                                            srsStatus = reviewStatus
+                                            srsStatus = reviewStatus,
+                                            pendingCount = questionsList.count { it.questionType == "SHORT_ANSWER" },
                                         )
                                     }
                                 },
@@ -1322,16 +1458,20 @@ private fun QuizResultSheet(
                 }
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
-                    text = if (result.passed) "Quiz passed" else "Keep practicing",
+                    text = "Quiz complete",
                     style = type.titleLarge,
                     color = accent,
                 )
                 Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = "${result.correctCount}/${result.total} correct",
+                    text = "${result.correctCount}/${result.total - result.pendingCount} graded correct · ${result.total - result.correctCount - result.pendingCount} to retry",
                     style = type.bodyMedium,
                     color = colors.onSurfaceVariant,
                 )
+                if (result.pendingCount > 0) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("${result.pendingCount} short answer${if (result.pendingCount == 1) " is" else "s are"} queued for review", style = type.bodySmall, color = colors.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
                 Spacer(modifier = Modifier.height(6.dp))
                 if (!result.passed) {
                     Text(
@@ -1508,19 +1648,39 @@ fun getCorrectOptionIndex(q: QuizQuestion): Int {
 
 /** CODE / FILL_BLANK questions are answered by typing, not by picking. */
 private fun isTextAnswerQuestion(q: QuizQuestion): Boolean =
-    q.questionType == "CODE" || q.questionType == "FILL_BLANK"
+    q.questionType == "CODE" || q.questionType == "FILL_BLANK" || q.questionType == "SHORT_ANSWER"
 
 private fun isQuestionGradable(q: QuizQuestion): Boolean =
-    if (isTextAnswerQuestion(q)) q.correctAnswer.isNotBlank() else getCorrectOptionIndex(q) != -1
+    if (q.questionType == "SHORT_ANSWER") false
+    else if (q.questionType == "CODE" || q.questionType == "FILL_BLANK") q.correctAnswer.isNotBlank()
+    else if (q.questionType == "MULTI_SELECT") parseIndexAnswer(q.correctAnswer).isNotEmpty()
+    else if (q.questionType == "DRAG_BLANK") parseIndexAnswer(q.correctAnswer).isNotEmpty()
+    else getCorrectOptionIndex(q) != -1
 
 private fun isQuestionCorrect(q: QuizQuestion, selectedIdx: Int?, codeText: String?): Boolean {
+    if (q.questionType == "SHORT_ANSWER") return false
+    if (q.questionType == "MULTI_SELECT") {
+        val selected = codeText?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
+        return selected.isNotEmpty() && selected == parseIndexAnswer(q.correctAnswer).toSet()
+    }
+    if (q.questionType == "DRAG_BLANK") {
+        val selected = codeText?.split(",")?.mapNotNull { it.toIntOrNull() }.orEmpty()
+        return selected.isNotEmpty() && selected == parseIndexAnswer(q.correctAnswer)
+    }
     if (isTextAnswerQuestion(q)) {
         if (q.correctAnswer.isBlank()) return false
         val userText = codeText?.trim().orEmpty()
-        return userText.isNotBlank() && userText.equals(q.correctAnswer.trim(), ignoreCase = true)
+        return userText.isNotBlank() && (listOf(q.correctAnswer) + q.acceptedAnswers).any { userText.equals(it.trim(), ignoreCase = true) }
     }
     val correctOptIdx = getCorrectOptionIndex(q)
     return correctOptIdx != -1 && (selectedIdx ?: -1) == correctOptIdx
+}
+
+private fun parseIndexAnswer(answer: String): List<Int> = try {
+    val array = JSONArray(answer)
+    (0 until array.length()).mapNotNull { array.optString(it).toIntOrNull() }
+} catch (_: Exception) {
+    answer.split(",").mapNotNull { it.trim().toIntOrNull() }
 }
 
 fun parseQuestionsList(
@@ -1540,7 +1700,14 @@ fun parseQuestionsList(
             for (i in 0 until array.length()) {
                 val obj = array.getJSONObject(i)
                 val qText = obj.optString("questionText", obj.optString("question", fallbackQuestionText))
-                var qType = obj.optString("questionType", fallbackQuestionType)
+                var qType = obj.optString("questionType", fallbackQuestionType).uppercase()
+                qType = when (qType) {
+                    "MULTIPLE_CHOICE" -> "MCQ"
+                    "MULTIPLE_SELECT" -> "MULTI_SELECT"
+                    "FILL_IN_THE_BLANK" -> "FILL_BLANK"
+                    "DRAG_AND_DROP" -> "DRAG_BLANK"
+                    else -> qType
+                }
                 val optArray = obj.optJSONArray("options")
                 val opts = mutableListOf<String>()
                 if (optArray != null) {
@@ -1556,7 +1723,10 @@ fun parseQuestionsList(
                 val codePref = rawCodePref?.takeIf { it.isValidSnippet() }
                 val cAns = obj.optString("correctAnswer", "0")
                 val exp = obj.optString("explanation", fallbackExplanation)
-                list.add(QuizQuestion(qText, qType, opts, codePref, cAns, exp))
+                val acceptedAnswers = obj.optJSONArray("acceptedAnswers")?.let { arr ->
+                    (0 until arr.length()).map { arr.optString(it) }
+                }.orEmpty()
+                list.add(QuizQuestion(qText, qType, opts, codePref, cAns, exp, acceptedAnswers, obj.optString("hint").takeIf { it.isNotBlank() && it != "null" }))
             }
             if (list.isNotEmpty()) return list
         } catch (e: Exception) {
