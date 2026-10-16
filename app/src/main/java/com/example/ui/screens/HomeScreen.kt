@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Intent
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -9,20 +10,19 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.LockOpen
-import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.dp
 import com.example.data.AppDatabase
 import com.example.data.preferences.AppPreferencesManager
 import com.example.service.UnlockQuizActivity
-import com.example.service.ConceptGenerator
 import java.util.Calendar
 
 @Composable
@@ -42,23 +41,21 @@ fun HomeScreen(onOpenLearn: () -> Unit, modifier: Modifier = Modifier) {
     val db = remember { AppDatabase.getDatabase(context) }
     val prefs = remember { AppPreferencesManager(context) }
     val history by db.historyDao().getAllHistory().collectAsState(initial = emptyList())
-    LaunchedEffect(history) {
-        history.filter { it.status == "GRADING_PENDING" && it.questionType == "SHORT_ANSWER" }.forEach { attempt ->
-            val grade = ConceptGenerator(prefs).evaluateShortAnswer(attempt.questionText, attempt.correctAnswer, attempt.userAnswer)
-            if (grade != null) db.historyDao().finishShortAnswerGrading(attempt.id, grade)
-        }
-    }
     val calendar = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
     val todayStart = calendar.timeInMillis
     val gradedHistory = history.filter { it.questionType != "SESSION_SUMMARY" }
-    val todayCorrect = gradedHistory.filter { it.answeredAt >= todayStart && it.isCorrect }.sumOf { 10 }
     val goal = prefs.getDailyXpGoal()
-    val xp = todayCorrect
     val ordered = gradedHistory.sortedBy { it.answeredAt }
     var combo = 0
     var lifetimeXp = 0
     var computedTodayXp = 0
+    var currentSession = ""
     ordered.forEach { attempt ->
+        val sessionKey = "${attempt.topic}:${attempt.conceptTitle}:${attempt.answeredAt / 300_000L}"
+        if (sessionKey != currentSession) {
+            combo = 0
+            currentSession = sessionKey
+        }
         if (attempt.isCorrect) combo++ else combo = 0
         if (attempt.isCorrect) {
             val multiplier = when {
@@ -74,9 +71,10 @@ fun HomeScreen(onOpenLearn: () -> Unit, modifier: Modifier = Modifier) {
             if (attempt.answeredAt >= todayStart) computedTodayXp += points
         }
     }
-    val displayCombo = ordered.takeLastWhile { it.isCorrect }.size
+    val displayCombo = combo
     val level = when {
         lifetimeXp >= 10000 -> "Master"
+        lifetimeXp >= 6000 -> "Expert"
         lifetimeXp >= 3000 -> "Advanced"
         lifetimeXp >= 1500 -> "Skilled"
         lifetimeXp >= 750 -> "Practitioner"
@@ -96,11 +94,19 @@ fun HomeScreen(onOpenLearn: () -> Unit, modifier: Modifier = Modifier) {
                     Text("Today's progress", style = MaterialTheme.typography.titleLarge)
                     Text("$computedTodayXp / $goal XP", color = colors.primary, fontWeight = FontWeight.Bold)
                 }
-                LinearProgressIndicator(progress = { (computedTodayXp.toFloat() / goal).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    CircularProgressIndicator(
+                        progress = { (computedTodayXp.toFloat() / goal).coerceIn(0f, 1f) },
+                        modifier = Modifier.size(156.dp),
+                        strokeWidth = 9.dp,
+                        trackColor = colors.surfaceContainerHighest,
+                    )
+                    Text("${(computedTodayXp.toFloat() / goal * 100).toInt().coerceIn(0, 100)}%", style = MaterialTheme.typography.headlineMedium, color = colors.primary, fontWeight = FontWeight.Bold)
+                }
                 Text("$level · $lifetimeXp lifetime XP · ${displayCombo} answer combo", color = colors.onSurfaceVariant)
                 Button(onClick = { context.startActivity(Intent(context, UnlockQuizActivity::class.java)) }, modifier = Modifier.fillMaxWidth()) {
                     androidx.compose.material3.Icon(Icons.Default.LockOpen, null)
-                    Spacer(Modifier.height(1.dp))
+                    Spacer(Modifier.size(width = 8.dp, height = 1.dp))
                     Text("Start a quiz")
                 }
             }

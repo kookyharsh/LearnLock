@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
@@ -47,6 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -66,6 +68,7 @@ import com.example.data.preferences.AppPreferencesManager
 import com.example.data.resolveWeakestTopic
 import com.example.data.scheduler.AdaptiveScheduler
 import com.example.service.UnlockReceiver
+import com.example.service.ShortAnswerGradingWorker
 import com.example.ui.components.MarkdownView
 import com.example.ui.theme.*
 import kotlinx.coroutines.launch
@@ -189,6 +192,7 @@ fun UnlockQuizScreen(
     }
 
     var isStarred by rememberSaveable { mutableStateOf(false) }
+    var showHint by rememberSaveable { mutableStateOf(false) }
 
     val quizResultHolder = rememberSaveable(saver = QuizResultStateSaver) {
         mutableStateOf<QuizResult?>(null)
@@ -232,16 +236,24 @@ fun UnlockQuizScreen(
                     null
                 }
                 val retryItem: QuestionHistory? =
-                    requestedRetry ?: db.historyDao().getPendingRetryQuestion()
+                    requestedRetry ?: db.historyDao().getPendingRetryQuestion(prefsManager.getQuestionTypes().toList())
                 if (retryItem != null) {
-                    pendingRetryItem = retryItem
-                    isStarred = retryItem.isStarred
-                    val originalConcept = db.conceptDao().getConceptByTopicAndTitle(
-                        retryItem.topic,
-                        retryItem.conceptTitle,
-                    )
-                    if (originalConcept != null) {
-                        currentConcept = originalConcept
+                    if (retryItem.questionType in prefsManager.getQuestionTypes()) {
+                        pendingRetryItem = retryItem
+                        isStarred = retryItem.isStarred
+                        val originalConcept = db.conceptDao().getConceptByTopicAndTitle(
+                            retryItem.topic,
+                            retryItem.conceptTitle,
+                        )
+                        if (originalConcept != null) {
+                            currentConcept = originalConcept
+                        }
+                    } else {
+                        currentConcept = if (prefsManager.getSelectedTopics().isEmpty()) {
+                            db.conceptDao().getNextUnusedConcept()
+                        } else {
+                            db.conceptDao().getNextUnusedConceptForTopics(prefsManager.getSelectedTopics().toList())
+                        }
                     }
                 } else {
                 val selectedTopics = prefsManager.getSelectedTopics().toList()
@@ -528,6 +540,7 @@ fun UnlockQuizScreen(
 
             val qIndex = currentQuestionIndex.coerceIn(0, questionsList.lastIndex)
             val currentQ = questionsList[qIndex]
+            LaunchedEffect(qIndex) { showHint = false }
             val selectedIdx = selectedOptionIndices[qIndex] ?: -1
             val currentCodeInput = codeAnswers[qIndex] ?: ""
             val isTextInputQuestion = isTextAnswerQuestion(currentQ)
@@ -785,6 +798,12 @@ fun UnlockQuizScreen(
                                 modifier = Modifier.weight(1f)
                             )
                         }
+                        if (currentQ.hint != null) {
+                            TextButton(onClick = { showHint = !showHint }) {
+                                Text(if (showHint) "Hide hint" else "Show hint")
+                            }
+                            if (showHint) Text(currentQ.hint, style = type.bodySmall, color = colors.onSurfaceVariant)
+                        }
 
                         Spacer(modifier = Modifier.height(16.dp))
 
@@ -864,7 +883,7 @@ fun UnlockQuizScreen(
                         } else if (currentQ.questionType == "DRAG_BLANK") {
                             val placed = currentCodeInput.split(",").mapNotNull { it.toIntOrNull() }
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text("Tap a choice to place it in the blank", style = type.labelMedium, color = colors.onSurfaceVariant)
+                                Text("Tap or drag choices to place answers in order", style = type.labelMedium, color = colors.onSurfaceVariant)
                                 currentQ.optionsList.forEachIndexed { index, option ->
                                     FilterChip(
                                         selected = index in placed,
@@ -873,12 +892,20 @@ fun UnlockQuizScreen(
                                             codeAnswers[qIndex] = next.joinToString(",")
                                         },
                                         label = { Text(option) },
-                                        leadingIcon = if (index in placed) {{ Text("${placed.indexOf(index) + 1}") }} else null,
+                                        leadingIcon = if (index in placed) { { Text("${placed.indexOf(index) + 1}") } } else null,
+                                        modifier = Modifier.pointerInput(qIndex, index) {
+                                            detectDragGestures(
+                                                onDragEnd = {
+                                                    val latest = codeAnswers[qIndex]?.split(",")?.mapNotNull { it.toIntOrNull() }.orEmpty()
+                                                    if (index !in latest) codeAnswers[qIndex] = (latest + index).joinToString(",")
+                                                },
+                                                onDrag = { change, _ -> change.consume() },
+                                            )
+                                        },
                                     )
                                 }
                                 if (placed.isNotEmpty()) Text("Placed: ${placed.mapNotNull { currentQ.optionsList.getOrNull(it) }.joinToString(" → ")}", color = colors.primary)
                             }
-                        } else {
                         } else {
                             Column(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1115,6 +1142,12 @@ fun UnlockQuizScreen(
                                 )
                             }
                         } else if (qIndex < questionsList.size - 1) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                            if (qIndex > 0) {
+                                TextButton(onClick = { currentQuestionIndex-- }, modifier = Modifier.align(Alignment.Start)) {
+                                    Text("Previous question")
+                                }
+                            }
                             Button(
                                 onClick = { currentQuestionIndex++ },
                                 enabled = isCurrentAnswered,
@@ -1138,6 +1171,7 @@ fun UnlockQuizScreen(
                                     imageVector = Icons.AutoMirrored.Filled.NavigateNext,
                                     contentDescription = null,
                                 )
+                            }
                             }
                         } else {
                             // Submit All Quiz Questions
@@ -1340,6 +1374,10 @@ fun UnlockQuizScreen(
                                                     srs.nextReviewAt
                                                 )
                                             }
+                                        }
+
+                                        if (questionsList.any { it.questionType == "SHORT_ANSWER" }) {
+                                            ShortAnswerGradingWorker.enqueue(context)
                                         }
 
                                         quizResult = QuizResult(

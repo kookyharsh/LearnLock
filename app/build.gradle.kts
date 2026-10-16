@@ -110,6 +110,7 @@ dependencies {
   implementation("androidx.security:security-crypto:1.0.0")
   implementation(libs.androidx.room.ktx)
   implementation(libs.androidx.room.runtime)
+  implementation("androidx.work:work-runtime-ktx:2.10.1")
   // implementation(libs.coil.compose)
   implementation(libs.converter.moshi)
   implementation(libs.firebase.ai)

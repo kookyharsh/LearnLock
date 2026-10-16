@@ -29,8 +29,11 @@ interface HistoryDao {
     @Query("UPDATE question_history SET status = CASE WHEN :isCorrect = 1 THEN 'PASSED' ELSE 'RETRY_PENDING' END, isCorrect = :isCorrect WHERE id = :id AND status = 'GRADING_PENDING'")
     suspend fun finishShortAnswerGrading(id: Long, isCorrect: Boolean)
 
-    @Query("SELECT * FROM question_history WHERE status = 'RETRY_PENDING' ORDER BY answeredAt ASC LIMIT 1")
-    suspend fun getPendingRetryQuestion(): QuestionHistory?
+    @Query("SELECT * FROM question_history WHERE status = 'RETRY_PENDING' AND questionType IN (:questionTypes) ORDER BY answeredAt ASC LIMIT 1")
+    suspend fun getPendingRetryQuestion(questionTypes: List<String>): QuestionHistory?
+
+    @Query("SELECT * FROM question_history WHERE status = 'GRADING_PENDING' AND questionType = 'SHORT_ANSWER' ORDER BY answeredAt ASC")
+    suspend fun getPendingShortAnswerAttempts(): List<QuestionHistory>
 
     @Query("SELECT * FROM question_history ORDER BY answeredAt DESC")
     fun getAllHistory(): Flow<List<QuestionHistory>>

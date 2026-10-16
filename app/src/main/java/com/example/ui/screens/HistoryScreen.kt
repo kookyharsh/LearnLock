@@ -216,6 +216,9 @@ fun HistoryScreen(
         ) {
             val historyItems = allHistory ?: emptyList()
             val gradedItems = historyItems.filter { it.questionType != "SESSION_SUMMARY" && it.status != "GRADING_PENDING" }
+            val topicStats = gradedItems.groupBy { it.topic }
+                .mapValues { (_, attempts) -> attempts.count { it.isCorrect } to attempts.size }
+                .entries.sortedByDescending { it.value.second }.take(5)
             val pendingCount = historyItems.count { it.status == "GRADING_PENDING" }
             Card(colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerHigh), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -240,6 +243,21 @@ fun HistoryScreen(
                         }
                     }
                     Text("Recent 14 days", style = type.labelSmall, color = colors.onSurfaceVariant)
+                }
+            }
+            if (topicStats.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text("Category performance", style = type.titleSmall, fontWeight = FontWeight.SemiBold)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    items(topicStats) { (topic, scores) ->
+                        val accuracy = if (scores.second == 0) 0 else scores.first * 100 / scores.second
+                        Surface(color = colors.surfaceContainerHigh, shape = MaterialTheme.shapes.medium) {
+                            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                                Text(topic, style = type.labelMedium, color = colors.onSurface)
+                                Text("$accuracy% · ${scores.second} answers", style = type.labelSmall, color = colors.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(8.dp))
