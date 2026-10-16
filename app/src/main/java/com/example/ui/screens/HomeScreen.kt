@@ -44,6 +44,8 @@ fun HomeScreen(onOpenLearn: () -> Unit, modifier: Modifier = Modifier) {
     val calendar = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }
     val todayStart = calendar.timeInMillis
     val gradedHistory = history.filter { it.questionType != "SESSION_SUMMARY" }
+    val retryCount = history.count { it.status == "RETRY_PENDING" }
+    val gradingCount = history.count { it.status == "GRADING_PENDING" }
     val goal = prefs.getDailyXpGoal()
     val ordered = gradedHistory.sortedBy { it.answeredAt }
     var combo = 0
@@ -124,6 +126,8 @@ fun HomeScreen(onOpenLearn: () -> Unit, modifier: Modifier = Modifier) {
                     Text("Your learning", style = MaterialTheme.typography.titleMedium)
                 }
                 Text("${gradedHistory.size} question attempts saved on this device", color = colors.onSurfaceVariant)
+                Text("$retryCount questions to retry · $gradingCount awaiting review", color = colors.onSurfaceVariant)
+                Text(if (prefs.isUnlockServiceEnabled()) "Unlock tutor is on" else "Unlock tutor is off", color = colors.onSurfaceVariant)
                 Text("Daily goal: $goal XP · change it in Settings", color = colors.onSurfaceVariant)
             }
         }
