@@ -26,6 +26,8 @@ data class SettingsInitial(
     val difficultyLevel: String,
     val questionTypes: Set<String>,
     val dailyXpGoal: Int,
+    val dailyQuizGoal: Int,
+    val isLearnLockEnabled: Boolean,
     val themeMode: ThemeMode,
 )
 
@@ -53,6 +55,8 @@ class SettingsViewModel @Inject constructor(
         difficultyLevel = prefs.getDifficultyLevel(),
         questionTypes = prefs.getQuestionTypes(),
         dailyXpGoal = prefs.getDailyXpGoal(),
+        dailyQuizGoal = prefs.getDailyQuizGoal(),
+        isLearnLockEnabled = prefs.isUnlockServiceEnabled(),
         themeMode = prefs.getThemeMode(),
     )
 
@@ -97,6 +101,10 @@ class SettingsViewModel @Inject constructor(
     fun setSelectedTopics(topics: Set<String>) = prefs.setSelectedTopics(topics)
 
     fun setDailyXpGoal(goal: Int) = prefs.setDailyXpGoal(goal)
+
+    fun setDailyQuizGoal(goal: Int) = prefs.setDailyQuizGoal(goal)
+
+    fun setLearnLockEnabled(enabled: Boolean) = prefs.setUnlockServiceEnabled(enabled)
 
     fun setDifficultyLevel(level: String) {
         prefs.setDifficultyLevel(level)

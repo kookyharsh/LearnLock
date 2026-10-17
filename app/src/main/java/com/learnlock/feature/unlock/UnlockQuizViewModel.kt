@@ -51,6 +51,7 @@ class UnlockQuizViewModel @Inject constructor(
         retryHistoryId: Long?,
         restoredConceptId: Long?,
         restoredRetryId: Long?,
+        requestedConceptId: Long? = null,
     ): LoadedQuiz {
         val didFreshLoad = restoredConceptId == null && restoredRetryId == null
         var concept: ConceptItem? = null
@@ -70,6 +71,9 @@ class UnlockQuizViewModel @Inject constructor(
                         if (retryItem == null) starred = c.isStarred
                     }
                 }
+            } else if (requestedConceptId != null) {
+                concept = db.conceptDao().getConceptById(requestedConceptId)
+                concept?.let { starred = it.isStarred }
             } else {
                 // A retry opened for one specific history entry wins over the
                 // global newest retry, so "Retry Question Now" quizzes that card.

@@ -1,111 +1,161 @@
 package com.learnlock.feature.home
 
+import android.content.Context
+import android.provider.Settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.learnlock.data.entity.ConceptItem
 import com.learnlock.data.entity.QuestionHistory
+import com.learnlock.data.model.QuizSummary
 import com.learnlock.data.preferences.AppPreferencesManager
+import com.learnlock.data.remote.ai.ConceptGenerationCoordinator
+import com.learnlock.data.remote.ai.ConceptGenerationState
+import com.learnlock.data.repository.ConceptRepository
 import com.learnlock.data.repository.HistoryRepository
+import com.learnlock.data.repository.QuizMapping
+import com.learnlock.domain.LearningAnalytics
+import com.learnlock.feature.tutor.TutorTileService
+import com.learnlock.feature.unlock.UnlockOverlayService
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Calendar
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 data class HomeUiState(
-    val todayXp: Int = 0,
-    val lifetimeXp: Int = 0,
-    val combo: Int = 0,
-    val level: String = "Starter",
-    val goal: Int = 40,
-    val gradedCount: Int = 0,
-    val retryCount: Int = 0,
-    val gradingCount: Int = 0,
-    val tutorEnabled: Boolean = false,
+    val isLearnLockEnabled: Boolean = false,
+    val hasOverlayPermission: Boolean = true,
+    val todayCompletedQuizzes: Int = 0,
+    val dailyQuizGoal: Int = 5,
+    val currentStreak: Int = 0,
+    val bestStreak: Int = 0,
+    val motivationalMessage: String = "Start your first quiz today!",
+    val recentQuizzes: List<QuizSummary> = emptyList(),
+    val totalXp: Int = 0,
+    val levelName: String = "Starter",
+    val levelNumber: Int = 1,
+    val generationState: ConceptGenerationState = ConceptGenerationState.Idle,
 ) {
     val progress: Float
-        get() = if (goal <= 0) 0f else (todayXp.toFloat() / goal).coerceIn(0f, 1f)
+        get() = if (dailyQuizGoal <= 0) 0f else (todayCompletedQuizzes.toFloat() / dailyQuizGoal).coerceIn(0f, 1f)
 
     val progressPercent: Int
         get() = (progress * 100).toInt()
+
+    val isEffectivelyActive: Boolean
+        get() = isLearnLockEnabled && hasOverlayPermission
 }
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    historyRepository: HistoryRepository,
+    @param:ApplicationContext private val context: Context,
+    private val historyRepository: HistoryRepository,
+    private val conceptRepository: ConceptRepository,
     private val preferences: AppPreferencesManager,
 ) : ViewModel() {
+
     private val refreshVersion = MutableStateFlow(0)
 
-    fun refreshPreferences() { refreshVersion.update { it + 1 } }
+    fun refresh() {
+        refreshVersion.update { it + 1 }
+    }
 
-    val uiState: StateFlow<HomeUiState> = historyRepository.getAllHistory()
-        .combine(refreshVersion) { history, _ -> computeState(history) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
+    val uiState: StateFlow<HomeUiState> = combine(
+        historyRepository.getAllHistory(),
+        conceptRepository.getUnusedConcepts(),
+        ConceptGenerationCoordinator.state,
+        refreshVersion,
+    ) { allHistory, unusedConcepts, genState, _ ->
+        computeState(allHistory, unusedConcepts, genState)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeUiState())
 
-    private fun computeState(history: List<QuestionHistory>): HomeUiState {
-        val graded = history.filter { it.questionType != "SESSION_SUMMARY" }
-        val ordered = graded.sortedBy { it.answeredAt }
+    private fun computeState(
+        history: List<QuestionHistory>,
+        unusedConcepts: List<ConceptItem>,
+        genState: ConceptGenerationState,
+    ): HomeUiState {
+        val hasOverlay = Settings.canDrawOverlays(context)
+        val isServiceEnabled = preferences.isUnlockServiceEnabled()
+        val dailyGoal = preferences.getDailyQuizGoal()
 
-        val calendar = Calendar.getInstance().apply {
+        // Completed quizzes: SESSION_SUMMARY entries
+        val sessions = history.filter { it.questionType == "SESSION_SUMMARY" }
+
+        val todayStart = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, 0)
             set(Calendar.MINUTE, 0)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
-        }
-        val todayStart = calendar.timeInMillis
+        }.timeInMillis
 
-        var combo = 0
-        var lifetimeXp = 0
-        var todayXp = 0
-        var currentSession = ""
-        ordered.forEach { attempt ->
-            val sessionKey = "${attempt.topic}:${attempt.conceptTitle}:${attempt.answeredAt / 300_000L}"
-            if (sessionKey != currentSession) {
-                combo = 0
-                currentSession = sessionKey
+        val todayCompletedCount = sessions.count { it.answeredAt >= todayStart }
+
+        // Streak calculation
+        val completionDates = sessions.map { it.answeredAt }
+        val streakInfo = LearningAnalytics.calculateStreaks(completionDates)
+
+        // Motivation message
+        val motivation = when {
+            todayCompletedCount == 0 -> "Complete your first quiz to keep your streak going!"
+            todayCompletedCount < dailyGoal -> {
+                val remaining = dailyGoal - todayCompletedCount
+                if (remaining == 1) "1 more quiz to reach your daily goal!" else "$remaining more quizzes to reach your daily goal!"
             }
-            if (attempt.isCorrect) combo++ else combo = 0
-            if (attempt.isCorrect) {
-                val multiplier = when {
-                    combo >= 6 -> 1.5
-                    combo == 5 -> 1.4
-                    combo == 4 -> 1.3
-                    combo == 3 -> 1.2
-                    combo == 2 -> 1.1
-                    else -> 1.0
-                }
-                val points = (10 * multiplier).toInt()
-                lifetimeXp += points
-                if (attempt.answeredAt >= todayStart) todayXp += points
-            }
+            todayCompletedCount == dailyGoal -> "Daily goal reached! Great job!"
+            else -> "Goal achieved! ${todayCompletedCount - dailyGoal} extra completed today!"
         }
+
+        // Recent Quizzes: merge recent unattempted concepts and recent completed sessions
+        val completedSummaries = sessions.map { QuizMapping.fromSessionSummary(it) }
+        val unattemptedSummaries = unusedConcepts.map { QuizMapping.fromConcept(it) }
+
+        val combinedQuizzes = (completedSummaries + unattemptedSummaries)
+            .sortedByDescending { it.date }
+            .take(3)
+
+        // XP Calculation from correct answers
+        val graded = history.filter { it.questionType != "SESSION_SUMMARY" && it.status != "GRADING_PENDING" }
+        val totalXp = graded.count { it.isCorrect } * 10
+        val (lvlName, lvlNum) = LearningAnalytics.levelForXp(totalXp)
 
         return HomeUiState(
-            todayXp = todayXp,
-            lifetimeXp = lifetimeXp,
-            combo = combo,
-            level = levelFor(lifetimeXp),
-            goal = preferences.getDailyXpGoal(),
-            gradedCount = graded.size,
-            retryCount = history.count { it.status == "RETRY_PENDING" },
-            gradingCount = history.count { it.status == "GRADING_PENDING" },
-            tutorEnabled = preferences.isUnlockServiceEnabled(),
+            isLearnLockEnabled = isServiceEnabled,
+            hasOverlayPermission = hasOverlay,
+            todayCompletedQuizzes = todayCompletedCount,
+            dailyQuizGoal = dailyGoal,
+            currentStreak = streakInfo.currentStreak,
+            bestStreak = streakInfo.bestStreak,
+            motivationalMessage = motivation,
+            recentQuizzes = combinedQuizzes,
+            totalXp = totalXp,
+            levelName = lvlName,
+            levelNumber = lvlNum,
+            generationState = genState,
         )
     }
 
-    private fun levelFor(lifetimeXp: Int): String = when {
-        lifetimeXp >= 10000 -> "Master"
-        lifetimeXp >= 6000 -> "Expert"
-        lifetimeXp >= 3000 -> "Advanced"
-        lifetimeXp >= 1500 -> "Skilled"
-        lifetimeXp >= 750 -> "Practitioner"
-        lifetimeXp >= 300 -> "Explorer"
-        lifetimeXp >= 100 -> "Learner"
-        else -> "Starter"
+    fun setLearnLockEnabled(enabled: Boolean) {
+        preferences.setUnlockServiceEnabled(enabled)
+        if (enabled) {
+            UnlockOverlayService.start(context)
+        } else {
+            UnlockOverlayService.stop(context)
+        }
+        TutorTileService.refresh(context)
+        refresh()
+    }
+
+    fun generateQuiz() {
+        ConceptGenerationCoordinator.start(context)
+    }
+
+    fun clearGenerationResult() {
+        ConceptGenerationCoordinator.clearResult()
     }
 }

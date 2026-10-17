@@ -187,6 +187,12 @@ class AppPreferencesManager(context: Context) {
         prefs.edit().putInt(KEY_DAILY_XP_GOAL, goal.coerceIn(15, 60)).apply()
     }
 
+    fun getDailyQuizGoal(): Int = prefs.getInt(KEY_DAILY_QUIZ_GOAL, 5).coerceIn(1, 20)
+
+    fun setDailyQuizGoal(goal: Int) {
+        prefs.edit().putInt(KEY_DAILY_QUIZ_GOAL, goal.coerceIn(1, 20)).apply()
+    }
+
     fun getThemeMode(): ThemeMode = runCatching {
         ThemeMode.valueOf(prefs.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name).orEmpty())
     }.getOrDefault(ThemeMode.SYSTEM)
@@ -221,6 +227,7 @@ class AppPreferencesManager(context: Context) {
         private const val KEY_DIFFICULTY_LEVEL = "difficulty_level"
         private const val KEY_QUESTION_TYPES = "question_types"
         private const val KEY_DAILY_XP_GOAL = "daily_xp_goal"
+        private const val KEY_DAILY_QUIZ_GOAL = "daily_quiz_goal"
         private const val KEY_THEME_MODE = "theme_mode"
         private const val KEY_DYNAMIC_COLOR = "dynamic_color"
 

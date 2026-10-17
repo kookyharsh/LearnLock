@@ -74,6 +74,9 @@ interface ConceptDao {
     @Query("SELECT COUNT(*) FROM concepts WHERE isUsed = 0")
     suspend fun getUnusedCountDirect(): Int
 
+    @Query("SELECT * FROM concepts WHERE isUsed = 0 ORDER BY createdAt DESC, id DESC")
+    fun getUnusedConcepts(): Flow<List<ConceptItem>>
+
     @Query("SELECT * FROM concepts ORDER BY id DESC")
     fun getAllConcepts(): Flow<List<ConceptItem>>
 

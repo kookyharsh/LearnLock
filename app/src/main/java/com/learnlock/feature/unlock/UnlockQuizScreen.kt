@@ -65,6 +65,7 @@ import java.util.Date
 fun UnlockQuizScreen(
     onDismiss: () -> Unit,
     retryHistoryId: Long? = null,
+    conceptId: Long? = null,
     modifier: Modifier = Modifier,
     viewModel: UnlockQuizViewModel = hiltViewModel(),
 ) {
@@ -108,7 +109,12 @@ fun UnlockQuizScreen(
     }
 
     LaunchedEffect(Unit) {
-        val loaded = viewModel.load(retryHistoryId, restoredConceptId, restoredRetryId)
+        val loaded = viewModel.load(
+            retryHistoryId = retryHistoryId,
+            restoredConceptId = restoredConceptId,
+            restoredRetryId = restoredRetryId,
+            requestedConceptId = conceptId,
+        )
         pendingRetryItem = loaded.retryItem
         currentConcept = loaded.concept
         isStarred = loaded.isStarred

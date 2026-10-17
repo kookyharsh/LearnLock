@@ -16,7 +16,6 @@ import com.learnlock.feature.home.HomeUiState
 import com.learnlock.feature.learn.LearnScreen
 import com.learnlock.feature.learn.LearnUiState
 import com.learnlock.feature.settings.AppearanceBottomSheet
-import com.learnlock.feature.settings.GoalBottomSheet
 import com.learnlock.ui.theme.UnlockLearnTheme
 import com.learnlock.feature.unlock.QuizResult
 import com.learnlock.feature.unlock.QuizResultSheet
@@ -39,11 +38,11 @@ class MaterialUiTest {
         compose.setContent {
             UnlockLearnTheme(mode, dynamic) {
                 Surface(Modifier.fillMaxSize()) {
-                    HomeScreen(if (empty) HomeUiState() else HomeUiState(todayXp = 30, gradedCount = 8), {}, {})
+                    HomeScreen(if (empty) HomeUiState() else HomeUiState(totalXp = 30, todayCompletedQuizzes = 3))
                 }
             }
         }
-        compose.onNodeWithText("Start a quiz").assertHasClickAction()
+        compose.onNodeWithText("Generate Quiz").assertHasClickAction()
         compose.onRoot().captureRoboImage("build/outputs/material/home-${mode.name}-$dynamic-$empty-$suffix.png")
     }
     @Test fun homeLight() = home(ThemeMode.LIGHT)
@@ -62,22 +61,22 @@ class MaterialUiTest {
                 AppearanceBottomSheet(true, {}, mode, dynamic, { mode = it }, { dynamic = it })
             }
         }
-        compose.onNodeWithText("Dark").performClick().assertIsSelected()
+        compose.onNodeWithText("Dark Theme").performClick().assertIsSelected()
         compose.onNodeWithText("Dynamic colors").performClick().assertIsOn()
         compose.onRoot().captureRoboImage("build/outputs/material/appearance-dark-dynamic.png")
     }
 
     @Test fun dailyGoalSelection() {
-        var selected = 40
+        var selected = 5
         var dismissed = false
         compose.setContent {
             UnlockLearnTheme(ThemeMode.LIGHT, false) {
-                GoalBottomSheet(true, { dismissed = true }, selected, { selected = it })
+                com.learnlock.feature.settings.DailyQuizGoalBottomSheet(true, { dismissed = true }, selected, { selected = it })
             }
         }
         compose.onRoot().captureRoboImage("build/outputs/material/daily-goal.png")
-        compose.onNodeWithText("60 XP").performClick()
-        org.junit.Assert.assertEquals(60, selected)
+        compose.onNodeWithText("8 Quizzes").performClick()
+        org.junit.Assert.assertEquals(8, selected)
         org.junit.Assert.assertTrue(dismissed)
     }
 

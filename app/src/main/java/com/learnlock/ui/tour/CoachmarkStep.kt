@@ -1,16 +1,24 @@
 package com.learnlock.ui.tour
 
 enum class CoachmarkStep(val title: String, val description: String) {
-    LEARN_TAB(
-        "Learn Tab",
-        "This is where your active concept and quiz will appear whenever you unlock your device."
+    HOME_TAB(
+        "Home Dashboard",
+        "Control LearnLock, review daily progress, view your streak, and access your recent quizzes."
     ),
     HISTORY_TAB(
-        "History & Progress",
-        "Track your progress and review all previously generated concepts and quiz questions here."
+        "Quiz Library",
+        "Browse, filter, and search all your generated and completed quizzes."
+    ),
+    STATS_TAB(
+        "Statistics & Streaks",
+        "View your activity heatmap, mastery progression, and milestone achievements."
     ),
     SETTINGS_TAB(
-        "Credentials & Topics",
-        "Add your Gemini API key and specify your own custom learning topics (subjects) here."
-    )
+        "Settings & Setup",
+        "Configure your daily quiz goal, question types, and AI credentials."
+    );
+
+    companion object {
+        val LEARN_TAB = HOME_TAB
+    }
 }

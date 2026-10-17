@@ -19,6 +19,7 @@ class UnlockQuizActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_RETRY_HISTORY_ID = "retry_history_id"
+        const val EXTRA_CONCEPT_ID = "concept_id"
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -65,9 +66,12 @@ class UnlockQuizActivity : ComponentActivity() {
             ) {
                 val retryHistoryId = intent.getLongExtra(EXTRA_RETRY_HISTORY_ID, -1L)
                     .takeIf { it != -1L }
+                val conceptId = intent.getLongExtra(EXTRA_CONCEPT_ID, -1L)
+                    .takeIf { it != -1L }
                 UnlockQuizScreen(
                     onDismiss = { finish() },
                     retryHistoryId = retryHistoryId,
+                    conceptId = conceptId,
                 )
             }
         }

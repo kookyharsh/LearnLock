@@ -38,6 +38,12 @@ interface HistoryDao {
     @Query("SELECT * FROM question_history ORDER BY answeredAt DESC")
     fun getAllHistory(): Flow<List<QuestionHistory>>
 
+    @Query("SELECT * FROM question_history WHERE questionType = 'SESSION_SUMMARY' ORDER BY answeredAt DESC")
+    fun getAllSessionSummaries(): Flow<List<QuestionHistory>>
+
+    @Query("SELECT * FROM question_history WHERE questionType != 'SESSION_SUMMARY' AND topic = :topic AND conceptTitle = :conceptTitle AND ABS(answeredAt - :answeredAt) <= 10000 ORDER BY id ASC")
+    suspend fun getQuestionsForAttempt(topic: String, conceptTitle: String, answeredAt: Long): List<QuestionHistory>
+
     @Query("SELECT * FROM question_history ORDER BY answeredAt DESC LIMIT :limit")
     fun getRecentlyViewedHistory(limit: Int = 10): Flow<List<QuestionHistory>>
 

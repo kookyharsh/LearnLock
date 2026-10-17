@@ -30,6 +30,11 @@ class HistoryRepository @Inject constructor(
 
     fun getAllHistory(): Flow<List<QuestionHistory>> = historyDao.getAllHistory()
 
+    fun getAllSessionSummaries(): Flow<List<QuestionHistory>> = historyDao.getAllSessionSummaries()
+
+    suspend fun getQuestionsForAttempt(topic: String, conceptTitle: String, answeredAt: Long): List<QuestionHistory> =
+        historyDao.getQuestionsForAttempt(topic, conceptTitle, answeredAt)
+
     suspend fun getAllHistoryList(): List<QuestionHistory> = historyDao.getAllHistoryList()
 
     fun getRecentlyViewedHistory(limit: Int = 10): Flow<List<QuestionHistory>> =

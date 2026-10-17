@@ -33,6 +33,8 @@ class ConceptRepository @Inject constructor(
 
     fun getUnusedCount(): Flow<Int> = conceptDao.getUnusedCount()
 
+    fun getUnusedConcepts(): Flow<List<ConceptItem>> = conceptDao.getUnusedConcepts()
+
     fun getAllConcepts(): Flow<List<ConceptItem>> = conceptDao.getAllConcepts()
 
     suspend fun updateReviewState(
