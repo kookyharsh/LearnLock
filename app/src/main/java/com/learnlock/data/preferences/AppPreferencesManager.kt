@@ -1,0 +1,229 @@
+package com.learnlock.data.preferences
+
+import android.content.Context
+import android.content.SharedPreferences
+import androidx.security.crypto.EncryptedSharedPreferences
+import androidx.security.crypto.MasterKeys
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
+class AppPreferencesManager(context: Context) {
+
+    private val appContext = context.applicationContext
+
+    private val prefs: SharedPreferences by lazy {
+        try {
+            val masterKeyAlias = MasterKeys.getOrCreate(MasterKeys.AES256_GCM_SPEC)
+            EncryptedSharedPreferences.create(
+                "secure_app_prefs",
+                masterKeyAlias,
+                appContext,
+                EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+            )
+        } catch (e: Exception) {
+            // Fallback if Keystore initialization encounters issue in container environment
+            appContext.getSharedPreferences("app_prefs_fallback", Context.MODE_PRIVATE)
+        }
+    }
+
+    private val _apiKeyFlow = MutableStateFlow(getApiKey())
+    val apiKeyFlow: StateFlow<String> = _apiKeyFlow.asStateFlow()
+
+    fun getApiKey(): String {
+        val primaryKey = try {
+            prefs.getString(KEY_API_KEY, "") ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+        if (primaryKey.isNotBlank()) return primaryKey.trim()
+
+        return try {
+            appContext.getSharedPreferences("app_prefs_fallback", Context.MODE_PRIVATE)
+                .getString(KEY_API_KEY, "")?.trim() ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+    }
+
+    fun setApiKey(key: String) {
+        val trimmed = key.trim()
+        try {
+            prefs.edit().putString(KEY_API_KEY, trimmed).commit()
+        } catch (_: Exception) {}
+        try {
+            appContext.getSharedPreferences("app_prefs_fallback", Context.MODE_PRIVATE)
+                .edit().putString(KEY_API_KEY, trimmed).commit()
+        } catch (_: Exception) {}
+        _apiKeyFlow.value = trimmed
+    }
+
+    fun isLearningWindowEnabled(): Boolean {
+        return prefs.getBoolean(KEY_WINDOW_ENABLED, false)
+    }
+
+    fun setLearningWindowEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_WINDOW_ENABLED, enabled).apply()
+    }
+
+    fun getLearningWindowStart(): String {
+        return prefs.getString(KEY_WINDOW_START, "09:00 AM") ?: "09:00 AM"
+    }
+
+    fun setLearningWindowStart(time: String) {
+        prefs.edit().putString(KEY_WINDOW_START, time).apply()
+    }
+
+    fun getLearningWindowEnd(): String {
+        return prefs.getString(KEY_WINDOW_END, "09:00 PM") ?: "09:00 PM"
+    }
+
+    fun setLearningWindowEnd(time: String) {
+        prefs.edit().putString(KEY_WINDOW_END, time).apply()
+    }
+
+    fun isSkipDuringActiveWindow(): Boolean {
+        return prefs.getBoolean(KEY_SKIP_DURING_ACTIVE, true)
+    }
+
+    fun setSkipDuringActiveWindow(skip: Boolean) {
+        prefs.edit().putBoolean(KEY_SKIP_DURING_ACTIVE, skip).apply()
+    }
+
+    fun getSelectedTopics(): Set<String> {
+        return prefs.getStringSet(KEY_TOPICS, DEFAULT_TOPICS) ?: DEFAULT_TOPICS
+    }
+
+    fun setSelectedTopics(topics: Set<String>) {
+        prefs.edit().putStringSet(KEY_TOPICS, topics).apply()
+    }
+
+    fun isUnlockServiceEnabled(): Boolean {
+        return prefs.getBoolean(KEY_SERVICE_ENABLED, false)
+    }
+
+    fun setUnlockServiceEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SERVICE_ENABLED, enabled).apply()
+    }
+
+    fun getTutorDisabledUntil(): Long {
+        return prefs.getLong(KEY_TUTOR_DISABLED_UNTIL, 0L)
+    }
+
+    fun setTutorDisabledUntil(epochMillis: Long) {
+        prefs.edit().putLong(KEY_TUTOR_DISABLED_UNTIL, epochMillis).apply()
+    }
+
+    fun isDriveSyncEnabled(): Boolean {
+        return prefs.getBoolean(KEY_DRIVE_SYNC, true)
+    }
+
+    fun setDriveSyncEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DRIVE_SYNC, enabled).apply()
+    }
+
+    fun getLastSyncTime(): Long {
+        return prefs.getLong(KEY_LAST_SYNC, 0L)
+    }
+
+    fun setLastSyncTime(time: Long) {
+        prefs.edit().putLong(KEY_LAST_SYNC, time).apply()
+    }
+
+    fun getGoogleUserEmail(): String? {
+        return prefs.getString(KEY_GOOGLE_USER_EMAIL, null)
+    }
+
+    fun setGoogleUserEmail(email: String) {
+        prefs.edit().putString(KEY_GOOGLE_USER_EMAIL, email).apply()
+    }
+
+    fun isTourCompleted(): Boolean {
+        return prefs.getBoolean(KEY_TOUR_COMPLETED, false)
+    }
+
+    fun setTourCompleted(completed: Boolean) {
+        prefs.edit().putBoolean(KEY_TOUR_COMPLETED, completed).apply()
+    }
+
+    fun getCustomModel(): String {
+        return prefs.getString(KEY_CUSTOM_MODEL, "") ?: ""
+    }
+
+    fun setCustomModel(model: String) {
+        prefs.edit().putString(KEY_CUSTOM_MODEL, model.trim()).apply()
+    }
+
+    fun getQuestionsPerQuiz(): Int {
+        return prefs.getInt(KEY_QUESTIONS_PER_QUIZ, 3).coerceIn(1, 5)
+    }
+
+    fun setQuestionsPerQuiz(count: Int) {
+        prefs.edit().putInt(KEY_QUESTIONS_PER_QUIZ, count.coerceIn(1, 5)).apply()
+    }
+
+    fun getDifficultyLevel(): String {
+        return prefs.getString(KEY_DIFFICULTY_LEVEL, "Medium") ?: "Medium"
+    }
+
+    fun setDifficultyLevel(level: String) {
+        prefs.edit().putString(KEY_DIFFICULTY_LEVEL, level.trim()).apply()
+    }
+
+    fun getQuestionTypes(): Set<String> = prefs.getStringSet(KEY_QUESTION_TYPES, null)
+        ?.toSet()
+        ?: setOf("MCQ", "TRUE_FALSE")
+
+    fun setQuestionTypes(types: Set<String>) {
+        if (types.isNotEmpty()) prefs.edit().putStringSet(KEY_QUESTION_TYPES, types.toSet()).apply()
+    }
+
+    fun getDailyXpGoal(): Int = prefs.getInt(KEY_DAILY_XP_GOAL, 40).coerceIn(15, 60)
+
+    fun setDailyXpGoal(goal: Int) {
+        prefs.edit().putInt(KEY_DAILY_XP_GOAL, goal.coerceIn(15, 60)).apply()
+    }
+
+    fun getThemeMode(): ThemeMode = runCatching {
+        ThemeMode.valueOf(prefs.getString(KEY_THEME_MODE, ThemeMode.SYSTEM.name).orEmpty())
+    }.getOrDefault(ThemeMode.SYSTEM)
+
+    fun setThemeMode(mode: ThemeMode) {
+        prefs.edit().putString(KEY_THEME_MODE, mode.name).apply()
+    }
+
+    fun isDynamicColor(): Boolean {
+        return prefs.getBoolean(KEY_DYNAMIC_COLOR, true)
+    }
+
+    fun setDynamicColor(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_DYNAMIC_COLOR, enabled).apply()
+    }
+
+    companion object {
+        private const val KEY_API_KEY = "api_key"
+        private const val KEY_CUSTOM_MODEL = "custom_model"
+        private const val KEY_WINDOW_ENABLED = "window_enabled"
+        private const val KEY_WINDOW_START = "window_start"
+        private const val KEY_WINDOW_END = "window_end"
+        private const val KEY_SKIP_DURING_ACTIVE = "skip_during_active"
+        private const val KEY_TOPICS = "selected_topics"
+        private const val KEY_SERVICE_ENABLED = "service_enabled"
+        private const val KEY_TUTOR_DISABLED_UNTIL = "tutor_disabled_until"
+        private const val KEY_DRIVE_SYNC = "drive_sync_enabled"
+        private const val KEY_LAST_SYNC = "last_sync_timestamp"
+        private const val KEY_GOOGLE_USER_EMAIL = "google_user_email"
+        private const val KEY_TOUR_COMPLETED = "tour_completed"
+        private const val KEY_QUESTIONS_PER_QUIZ = "questions_per_quiz"
+        private const val KEY_DIFFICULTY_LEVEL = "difficulty_level"
+        private const val KEY_QUESTION_TYPES = "question_types"
+        private const val KEY_DAILY_XP_GOAL = "daily_xp_goal"
+        private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_DYNAMIC_COLOR = "dynamic_color"
+
+        val DEFAULT_TOPICS = setOf("General Knowledge", "Technology", "History")
+    }
+}

@@ -47,7 +47,7 @@ jobs:
       - name: Create Firebase config placeholder
         shell: bash
         run: |
-          printf '%s' '{"project_info":{"project_number":"0","project_id":"placeholder"},"client":[{"client_info":{"mobilesdk_app_id":"1:0:android:placeholder","android_client_info":{"package_name":"com.example"}},"api_key":[{"current_key":"placeholder"}]}],"configuration_version":"1"}' > app/google-services.json
+          printf '%s' '{"project_info":{"project_number":"0","project_id":"placeholder"},"client":[{"client_info":{"mobilesdk_app_id":"1:0:android:placeholder","android_client_info":{"package_name":"com.learnlock"}},"api_key":[{"current_key":"placeholder"}]}],"configuration_version":"1"}' > app/google-services.json
 
       - name: Build debug APK
         run: ./gradlew assembleDebug
@@ -97,7 +97,7 @@ jobs:
       - name: Create Firebase config placeholder
         shell: bash
         run: |
-          printf '%s' '{"project_info":{"project_number":"0","project_id":"placeholder"},"client":[{"client_info":{"mobilesdk_app_id":"1:0:android:placeholder","android_client_info":{"package_name":"com.example"}},"api_key":[{"current_key":"placeholder"}]}],"configuration_version":"1"}' > app/google-services.json
+          printf '%s' '{"project_info":{"project_number":"0","project_id":"placeholder"},"client":[{"client_info":{"mobilesdk_app_id":"1:0:android:placeholder","android_client_info":{"package_name":"com.learnlock"}},"api_key":[{"current_key":"placeholder"}]}],"configuration_version":"1"}' > app/google-services.json
 
       - name: Validate release signing secrets
         shell: bash

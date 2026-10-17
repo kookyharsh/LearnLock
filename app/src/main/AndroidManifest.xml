@@ -10,7 +10,7 @@
         tools:ignore="ForegroundServicePermission" />
 
     <application
-        android:name=".UnlockLearnApp"
+        android:name=".LearnLockApp"
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -34,7 +34,7 @@
         </activity>
 
         <activity
-            android:name=".service.UnlockQuizActivity"
+            android:name=".feature.unlock.UnlockQuizActivity"
             android:exported="false"
             android:showWhenLocked="true"
             android:turnScreenOn="true"
@@ -43,7 +43,7 @@
             android:excludeFromRecents="true" />
 
         <activity
-            android:name=".service.TutorSnoozeActivity"
+            android:name=".feature.tutor.TutorSnoozeActivity"
             android:exported="true"
             android:label="@string/tile_label"
             android:theme="@style/Theme.MyApplication">
@@ -53,7 +53,7 @@
         </activity>
 
         <service
-            android:name=".service.UnlockOverlayService"
+            android:name=".feature.unlock.UnlockOverlayService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="specialUse">
@@ -63,7 +63,7 @@
         </service>
 
         <service
-            android:name=".service.TutorTileService"
+            android:name=".feature.tutor.TutorTileService"
             android:exported="true"
             android:icon="@drawable/ic_tile_tutor"
             android:label="@string/tile_label"
@@ -80,7 +80,7 @@
         </service>
 
         <receiver
-            android:name=".service.UnlockReceiver"
+            android:name=".feature.unlock.UnlockReceiver"
             android:enabled="true"
             android:exported="false">
             <intent-filter>
