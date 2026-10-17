@@ -83,7 +83,7 @@ interface HistoryDao {
     @Query("SELECT isCorrect FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle AND questionType != 'SESSION_SUMMARY' AND status != 'GRADING_PENDING' ORDER BY answeredAt DESC LIMIT :limit")
     suspend fun getRecentCorrectnessForConcept(topic: String, conceptTitle: String, limit: Int): List<Boolean>
 
-    @Query("SELECT answeredAt FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle ORDER BY answeredAt DESC LIMIT :limit")
+    @Query("SELECT answeredAt FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle AND questionType != 'SESSION_SUMMARY' AND status != 'GRADING_PENDING' ORDER BY answeredAt DESC LIMIT :limit")
     suspend fun getRecentTimestampsForConcept(topic: String, conceptTitle: String, limit: Int): List<Long>
 
     @Query("SELECT COUNT(*) FROM question_history WHERE status = 'RETRY_PENDING' AND topic = :topic")

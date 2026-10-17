@@ -58,6 +58,8 @@ object ConceptGenerationCoordinator {
                 _state.value = ConceptGenerationState.Running("Saving ${concepts.size} concepts…")
                 AppDatabase.getDatabase(appContext).conceptDao().insertConcepts(concepts)
                 _state.value = ConceptGenerationState.Success(concepts.size)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (error: Exception) {
                 _state.value = ConceptGenerationState.Error(
                     error.message?.takeIf { it.isNotBlank() }

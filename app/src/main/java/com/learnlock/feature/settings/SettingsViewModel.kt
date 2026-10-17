@@ -1,5 +1,8 @@
 package com.learnlock.feature.settings
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.learnlock.data.preferences.AppPreferencesManager
@@ -9,6 +12,7 @@ import com.learnlock.data.repository.HistoryRepository
 import com.learnlock.data.remote.ai.ConceptGenerator
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -63,6 +67,12 @@ class SettingsViewModel @Inject constructor(
     private val _counts = MutableStateFlow(SettingsDataCounts())
     val counts: StateFlow<SettingsDataCounts> = _counts.asStateFlow()
 
+    var isTestingKey by mutableStateOf(false)
+        private set
+
+    var keyTestError by mutableStateOf<String?>(null)
+        private set
+
     init {
         loadCounts()
     }
@@ -80,7 +90,14 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun setApiKey(value: String) = prefs.setApiKey(value)
+    fun setApiKey(value: String) {
+        prefs.setApiKey(value)
+        clearKeyTestError()
+    }
+
+    fun clearKeyTestError() {
+        keyTestError = null
+    }
 
     fun setCustomModel(value: String) = prefs.setCustomModel(value)
 
@@ -128,12 +145,38 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    suspend fun testApiKeyConnection(): Pair<Boolean, String> =
-        ConceptGenerator(prefs).testApiKeyConnection()
+    fun testApiKeyConnection(onResult: (Boolean, String) -> Unit) {
+        if (isTestingKey) return
+        isTestingKey = true
+        keyTestError = null
+        viewModelScope.launch {
+            try {
+                val (ok, msg) = ConceptGenerator(prefs).testApiKeyConnection()
+                if (!ok) {
+                    keyTestError = msg
+                }
+                onResult(ok, msg)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                val err = "Connection failed: ${e.message}"
+                keyTestError = err
+                onResult(false, err)
+            } finally {
+                isTestingKey = false
+            }
+        }
+    }
 
-    suspend fun deleteAllData() {
-        conceptRepository.clearAllConcepts()
-        historyRepository.clearAllHistory()
-        _counts.value = SettingsDataCounts(conceptCount = 0, historyCount = 0)
+    fun deleteAllData(onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                conceptRepository.clearAllConcepts()
+                historyRepository.clearAllHistory()
+                _counts.value = SettingsDataCounts(conceptCount = 0, historyCount = 0)
+                onComplete()
+            } catch (_: Exception) {
+            }
+        }
     }
 }

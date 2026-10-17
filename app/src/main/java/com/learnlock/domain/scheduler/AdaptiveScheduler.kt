@@ -91,14 +91,14 @@ object AdaptiveScheduler {
      * Returns a neutral 0.5 when there is no data.
      */
     fun computeMastery(results: List<Boolean>, timestamps: List<Long>, now: Long): Double {
-        require(results.size == timestamps.size) { "results and timestamps must match" }
-        if (results.isEmpty()) return 0.5
+        if (results.isEmpty() || timestamps.isEmpty()) return 0.5
 
         val halfLifeDays = 7.0
         val lambda = 0.6931471805599453 / (halfLifeDays * DAY_MILLIS)
         var weightedSum = 0.0
         var weightSum = 0.0
-        for (i in results.indices) {
+        val count = minOf(results.size, timestamps.size)
+        for (i in 0 until count) {
             val weight = exp(-lambda * (now - timestamps[i]).coerceAtLeast(0))
             weightedSum += if (results[i]) weight else 0.0
             weightSum += weight

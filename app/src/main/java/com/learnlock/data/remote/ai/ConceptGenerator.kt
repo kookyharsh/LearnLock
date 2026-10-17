@@ -3,6 +3,7 @@ package com.learnlock.data.remote.ai
 import android.util.Log
 import com.learnlock.data.entity.ConceptItem
 import com.learnlock.data.preferences.AppPreferencesManager
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -132,12 +133,7 @@ class ConceptGenerator(
             client.newCall(requestBuilder.build()).execute().use { response ->
                 val responseBody = response.body?.string()
                 if (!response.isSuccessful) {
-                    val errDetail = try {
-                        val errJson = JSONObject(responseBody ?: "")
-                        errJson.optJSONObject("error")?.optString("message") ?: "HTTP ${response.code}"
-                    } catch (_: Exception) {
-                        "HTTP ${response.code}: ${response.message}"
-                    }
+                    val errDetail = extractErrorMessage(responseBody, response.code, response.message)
                     return@withContext Pair(false, "Connection failed: $errDetail")
                 }
 
@@ -147,8 +143,32 @@ class ConceptGenerator(
 
                 return@withContext Pair(true, "API Key Verified & Connected Successfully!")
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             return@withContext Pair(false, "Network error: ${e.message}")
+        }
+    }
+
+    private fun extractErrorMessage(responseBody: String?, responseCode: Int, responseMessage: String): String {
+        if (responseBody.isNullOrBlank()) return "HTTP $responseCode: $responseMessage"
+        return try {
+            val errJson = JSONObject(responseBody)
+            val errObj = errJson.optJSONObject("error")
+            if (errObj != null) {
+                val msg = errObj.optString("message")
+                if (msg.isNotBlank()) msg else errObj.toString()
+            } else {
+                val errStr = errJson.optString("error")
+                if (errStr.isNotBlank()) {
+                    errStr
+                } else {
+                    val msgStr = errJson.optString("message")
+                    if (msgStr.isNotBlank()) msgStr else "HTTP $responseCode: $responseMessage"
+                }
+            }
+        } catch (_: Exception) {
+            "HTTP $responseCode: $responseMessage"
         }
     }
 
@@ -202,19 +222,14 @@ class ConceptGenerator(
                 requestBuilder.url(url)
                     .post(jsonPayload.toString().toRequestBody("application/json".toMediaType()))
                     .addHeader("Authorization", "Bearer $apiKey")
-                    .addHeader("HTTP-Referer", "https://unlocklearn.app")
+                    .addHeader("HTTP-Referer", "https://learnlock.app")
                     .addHeader("X-Title", "UnlockLearn")
                     
                 client.newCall(requestBuilder.build()).execute().use { response ->
                     val responseBody = response.body?.string()
 
                     if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                        val errDetail = try {
-                            val errJson = JSONObject(responseBody ?: "")
-                            errJson.optJSONObject("error")?.optString("message") ?: "HTTP ${response.code}: ${response.message}"
-                        } catch (_: Exception) {
-                            "HTTP ${response.code}: ${response.message}"
-                        }
+                        val errDetail = extractErrorMessage(responseBody, response.code, response.message)
                         Log.e(TAG, "OpenRouter request failed code=${response.code}: $errDetail")
                         throw IllegalStateException(errDetail)
                     }
@@ -251,12 +266,7 @@ class ConceptGenerator(
                     val responseBody = response.body?.string()
 
                     if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                        val errDetail = try {
-                            val errJson = JSONObject(responseBody ?: "")
-                            errJson.optJSONObject("error")?.optString("message") ?: "HTTP ${response.code}: ${response.message}"
-                        } catch (_: Exception) {
-                            "HTTP ${response.code}: ${response.message}"
-                        }
+                        val errDetail = extractErrorMessage(responseBody, response.code, response.message)
                         Log.e(TAG, "OpenAI request failed code=${response.code}: $errDetail")
                         throw IllegalStateException(errDetail)
                     }
@@ -299,12 +309,7 @@ class ConceptGenerator(
                     val responseBody = response.body?.string()
 
                     if (!response.isSuccessful || responseBody.isNullOrBlank()) {
-                        val errDetail = try {
-                            val errJson = JSONObject(responseBody ?: "")
-                            errJson.optJSONObject("error")?.optString("message") ?: "HTTP ${response.code}: ${response.message}"
-                        } catch (_: Exception) {
-                            "HTTP ${response.code}: ${response.message}"
-                        }
+                        val errDetail = extractErrorMessage(responseBody, response.code, response.message)
                         Log.e(TAG, "Gemini request failed code=${response.code}: $errDetail")
                         throw IllegalStateException(errDetail)
                     }
@@ -484,11 +489,19 @@ class ConceptGenerator(
     }
 
     private fun sanitizeAndParseJsonArray(rawText: String): JSONArray {
-        // Step 1: Strip special tokens like <unk> or <|endoftext|>
-        var trimmed = rawText.replace(Regex("<unk>|<\\|[a-zA-Z0-9_|.-]+>|\\uFFFD"), "").trim()
-        
-        // Strip markdown code fences if present
-        if (trimmed.startsWith("```")) {
+        // Step 1: Strip reasoning/thinking tags and special model tokens
+        var trimmed = rawText
+            .replace(Regex("<think>[\\s\\S]*?</think>", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("<thinking>[\\s\\S]*?</thinking>", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("<unk>|<\\|[a-zA-Z0-9_|.-]+>|\\uFFFD"), "")
+            .trim()
+
+        // Step 2: Extract code block contents if enclosed in markdown code fences (```json ... ``` or ``` ... ```)
+        val codeFenceRegex = Regex("```(?:json)?\\s*([\\s\\S]*?)\\s*```", RegexOption.IGNORE_CASE)
+        val fenceMatch = codeFenceRegex.find(trimmed)
+        if (fenceMatch != null) {
+            trimmed = fenceMatch.groupValues[1].trim()
+        } else if (trimmed.startsWith("```")) {
             val firstLineEnd = trimmed.indexOf('\n')
             if (firstLineEnd != -1) {
                 trimmed = trimmed.substring(firstLineEnd + 1)
@@ -499,13 +512,19 @@ class ConceptGenerator(
             trimmed = trimmed.trim()
         }
 
-        // Extract exact JSON array bounds between first '[' and last ']'
-        val startIdx = trimmed.indexOf('[')
-        val endIdx = trimmed.lastIndexOf(']')
-        var jsonString = if (startIdx != -1 && endIdx > startIdx) {
-            trimmed.substring(startIdx, endIdx + 1)
+        // Step 3: Extract exact JSON array or object bounds
+        val startArray = trimmed.indexOf('[')
+        val endArray = trimmed.lastIndexOf(']')
+        var jsonString = if (startArray != -1 && endArray > startArray) {
+            trimmed.substring(startArray, endArray + 1)
         } else {
-            trimmed
+            val startObj = trimmed.indexOf('{')
+            val endObj = trimmed.lastIndexOf('}')
+            if (startObj != -1 && endObj > startObj) {
+                trimmed.substring(startObj, endObj + 1)
+            } else {
+                trimmed
+            }
         }
 
         // Repair common LLM JSON syntax anomalies:
@@ -515,16 +534,17 @@ class ConceptGenerator(
         jsonString = jsonString.replace(Regex(",\\s*([]}])"), "$1")
 
         if (jsonString.startsWith("{")) {
-            return try {
+            try {
                 val rootObj = JSONObject(jsonString)
                 val arrayInside = rootObj.optJSONArray("concepts")
                     ?: rootObj.optJSONArray("items")
                     ?: rootObj.optJSONArray("data")
                     ?: rootObj.optJSONArray("results")
-                arrayInside ?: JSONArray().put(rootObj)
-            } catch (_: Exception) {
-                JSONArray(jsonString)
-            }
+                if (arrayInside != null) {
+                    return arrayInside
+                }
+                return JSONArray().put(rootObj)
+            } catch (_: Exception) {}
         }
 
         // Attempt 1: Direct JSON parse
@@ -564,8 +584,8 @@ class ConceptGenerator(
             }
         } catch (_: Exception) {}
 
-        // Fallback: throw original parse exception
-        return JSONArray(cleaned)
+        // Friendly fallback error message instead of raw org.json.JSONException
+        throw IllegalStateException("AI provider response could not be parsed into valid concept JSON. Please try generating again.")
     }
 
     private fun autoRepairAndCloseJson(raw: String): String {

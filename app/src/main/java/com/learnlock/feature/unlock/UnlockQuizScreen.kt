@@ -948,19 +948,23 @@ fun UnlockQuizScreen(
                             Button(
                                 onClick = {
                                     coroutineScope.launch {
-                                        quizResult = viewModel.submit(
-                                            questions = questionsList,
-                                            selectedOptionIndices = selectedOptionIndices,
-                                            multiSelections = multiSelections,
-                                            codeAnswers = codeAnswers,
-                                            title = title,
-                                            topic = topic,
-                                            summary = summary,
-                                            rawQuestionsJson = rawQuestionsJson,
-                                            isStarred = isStarred,
-                                            concept = currentConcept,
-                                            pendingRetryItem = pendingRetryItem,
-                                        )
+                                        try {
+                                            quizResult = viewModel.submit(
+                                                questions = questionsList,
+                                                selectedOptionIndices = selectedOptionIndices,
+                                                multiSelections = multiSelections,
+                                                codeAnswers = codeAnswers,
+                                                title = title,
+                                                topic = topic,
+                                                summary = summary,
+                                                rawQuestionsJson = rawQuestionsJson,
+                                                isStarred = isStarred,
+                                                concept = currentConcept,
+                                                pendingRetryItem = pendingRetryItem,
+                                            )
+                                        } catch (e: Exception) {
+                                            android.util.Log.e("UnlockQuizScreen", "Error submitting quiz", e)
+                                        }
                                     }
                                 },
                                 enabled = isCurrentAnswered,

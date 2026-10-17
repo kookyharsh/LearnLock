@@ -262,7 +262,16 @@ class UnlockQuizViewModel @Inject constructor(
             questions.forEachIndexed { i, q ->
                 put(JSONObject().apply {
                     put("idx", i)
-                    put("isCorrect", isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i]))
+                    val qCorrect = when (q.questionType) {
+                        "SHORT_ANSWER" -> false // pending evaluation
+                        "MULTI_SELECT" -> {
+                            val selected = multiSelections[i]?.split(",")?.mapNotNull { it.toIntOrNull() }?.toSet().orEmpty()
+                            selected.isNotEmpty() && selected == parseIndexAnswer(q.correctAnswer)
+                        }
+                        "DRAG_BLANK" -> codeAnswers[i]?.split(",")?.mapNotNull { it.toIntOrNull() }?.let { it.isNotEmpty() && it == parseIndexAnswer(q.correctAnswer) } ?: false
+                        else -> isQuestionCorrect(q, selectedOptionIndices[i], codeAnswers[i])
+                    }
+                    put("isCorrect", qCorrect)
                 })
             }
         }.toString()
@@ -276,7 +285,7 @@ class UnlockQuizViewModel @Inject constructor(
         var reviewInterval: Int? = null
         var reviewStatus: String? = null
         db.withTransaction {
-            // Insert QuestionHistory entry (RETRY_PENDING if failed so user can re-practice in History)
+            val isSessionSuccessful = if (gradableCount > 0) (correctCount.toFloat() / gradableCount >= 0.6f) else true
             db.historyDao().insertHistory(
                 QuestionHistory(
                     id = 0,
@@ -285,7 +294,7 @@ class UnlockQuizViewModel @Inject constructor(
                     questionText = "Quiz session · ${questions.size} questions",
                     userAnswer = formattedUserAnswer,
                     correctAnswer = firstQ.correctAnswer,
-                    isCorrect = correctCount == gradableCount && gradableCount > 0,
+                    isCorrect = isSessionSuccessful,
                     status = "SESSION_SUMMARY",
                     explanation = firstQ.explanation,
                     optionsJson = JSONArray(firstQ.optionsList).toString(),
@@ -364,34 +373,38 @@ class UnlockQuizViewModel @Inject constructor(
 
             if (concept != null) {
                 db.conceptDao().markConceptUsed(concept.id)
-                // Spaced-repetition scheduling + mastery update
-                val answeredAt = System.currentTimeMillis()
-                val srs = AdaptiveScheduler.scheduleAnswer(
-                    repetitions = concept.repetitions,
-                    easeFactor = concept.easeFactor,
-                    intervalDays = concept.intervalDays,
-                    nextReviewAt = concept.nextReviewAt,
-                    lapses = concept.lapses,
-                    passed = objectivePassed,
-                    now = answeredAt,
-                )
-                val recentCorrect = db.historyDao()
-                    .getRecentCorrectnessForConcept(topic, title, 10)
-                val recentTimes = db.historyDao()
-                    .getRecentTimestampsForConcept(topic, title, 10)
-                val mastery = AdaptiveScheduler.computeMastery(recentCorrect, recentTimes, answeredAt)
-                db.conceptDao().updateReviewState(
-                    id = concept.id,
-                    repetitions = srs.repetitions,
-                    easeFactor = srs.easeFactor,
-                    intervalDays = srs.intervalDays,
-                    nextReviewAt = srs.nextReviewAt,
-                    lapses = srs.lapses,
-                    masteryScore = mastery,
-                )
-                masteryAfter = mastery
-                reviewInterval = srs.intervalDays
-                reviewStatus = AdaptiveScheduler.statusOf(srs.repetitions, srs.intervalDays, srs.nextReviewAt)
+                try {
+                    // Spaced-repetition scheduling + mastery update
+                    val answeredAt = System.currentTimeMillis()
+                    val srs = AdaptiveScheduler.scheduleAnswer(
+                        repetitions = concept.repetitions,
+                        easeFactor = concept.easeFactor,
+                        intervalDays = concept.intervalDays,
+                        nextReviewAt = concept.nextReviewAt,
+                        lapses = concept.lapses,
+                        passed = objectivePassed,
+                        now = answeredAt,
+                    )
+                    val recentCorrect = db.historyDao()
+                        .getRecentCorrectnessForConcept(topic, title, 10)
+                    val recentTimes = db.historyDao()
+                        .getRecentTimestampsForConcept(topic, title, 10)
+                    val mastery = AdaptiveScheduler.computeMastery(recentCorrect, recentTimes, answeredAt)
+                    db.conceptDao().updateReviewState(
+                        id = concept.id,
+                        repetitions = srs.repetitions,
+                        easeFactor = srs.easeFactor,
+                        intervalDays = srs.intervalDays,
+                        nextReviewAt = srs.nextReviewAt,
+                        lapses = srs.lapses,
+                        masteryScore = mastery,
+                    )
+                    masteryAfter = mastery
+                    reviewInterval = srs.intervalDays
+                    reviewStatus = AdaptiveScheduler.statusOf(srs.repetitions, srs.intervalDays, srs.nextReviewAt)
+                } catch (e: Exception) {
+                    android.util.Log.e("UnlockQuizViewModel", "SRS mastery computation failed", e)
+                }
             }
         }
 

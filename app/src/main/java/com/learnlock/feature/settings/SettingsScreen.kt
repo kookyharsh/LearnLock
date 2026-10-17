@@ -146,13 +146,9 @@ fun SettingsScreen(
     val initial = viewModel.initial
     val counts by viewModel.counts.collectAsStateWithLifecycle()
 
-    var isLearnLockEnabled by rememberSaveable { mutableStateOf(initial.isLearnLockEnabled) }
     var apiKeyInput by rememberSaveable { mutableStateOf(initial.apiKey) }
     var customModelInput by rememberSaveable { mutableStateOf(initial.customModel) }
     var isApiKeyVisible by rememberSaveable { mutableStateOf(false) }
-
-    var isTestingKey by rememberSaveable { mutableStateOf(false) }
-    var keyTestError by rememberSaveable { mutableStateOf<String?>(null) }
 
     var windowEnabled by rememberSaveable { mutableStateOf(initial.learningWindowEnabled) }
     var startTimeInput by rememberSaveable { mutableStateOf(initial.learningWindowStart) }
@@ -200,12 +196,9 @@ fun SettingsScreen(
                 TextButton(
                     onClick = {
                         showDeleteConfirm = false
-                        coroutineScope.launch {
-                            try {
-                                viewModel.deleteAllData()
+                        viewModel.deleteAllData {
+                            coroutineScope.launch {
                                 snackbarHostState.showSnackbar("All learning data deleted")
-                            } catch (e: Exception) {
-                                snackbarHostState.showSnackbar("Failed to delete data: ${e.message}")
                             }
                         }
                     },
@@ -241,26 +234,6 @@ fun SettingsScreen(
         ) {
             // Group 1: LearnLock Settings
             SettingsGroup(title = "LearnLock Service") {
-                // Shared LearnLock toggle
-                SettingSwitchItem(
-                    icon = Icons.Default.Lock,
-                    title = "Enable LearnLock",
-                    description = if (isLearnLockEnabled) "Quizzes trigger when unlocking your phone" else "Automatic lock-screen triggering is paused",
-                    checked = isLearnLockEnabled,
-                    onCheckedChange = { checked ->
-                        isLearnLockEnabled = checked
-                        viewModel.setLearnLockEnabled(checked)
-                        if (checked) {
-                            UnlockOverlayService.start(context)
-                        } else {
-                            UnlockOverlayService.stop(context)
-                        }
-                        TutorTileService.refresh(context)
-                    },
-                )
-
-                HorizontalDivider(modifier = Modifier.padding(horizontal = 16.dp))
-
                 // Permission Status
                 SettingActionItem(
                     icon = if (hasOverlayPermission) Icons.Default.CheckCircle else Icons.Default.Warning,
@@ -477,12 +450,11 @@ fun SettingsScreen(
                         onValueChange = {
                             apiKeyInput = it
                             viewModel.setApiKey(it)
-                            keyTestError = null
                         },
                         label = { Text("API Key / Token") },
                         placeholder = { Text("sk-or-v1-... or AIzaSy...") },
-                        supportingText = { Text(keyTestError ?: "Stored encrypted locally on this device.") },
-                        isError = keyTestError != null,
+                        supportingText = { Text(viewModel.keyTestError ?: "Stored encrypted locally on this device.") },
+                        isError = viewModel.keyTestError != null,
                         singleLine = true,
                         visualTransformation = if (isApiKeyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
@@ -511,27 +483,18 @@ fun SettingsScreen(
 
                     OutlinedButton(
                         onClick = {
-                            coroutineScope.launch {
-                                isTestingKey = true
-                                keyTestError = null
-                                try {
-                                    val (ok, msg) = viewModel.testApiKeyConnection()
-                                    if (ok) {
+                            viewModel.testApiKeyConnection { ok, msg ->
+                                if (ok) {
+                                    coroutineScope.launch {
                                         snackbarHostState.showSnackbar(msg)
-                                    } else {
-                                        keyTestError = msg
                                     }
-                                } catch (e: Exception) {
-                                    keyTestError = "Connection failed: ${e.message}"
-                                } finally {
-                                    isTestingKey = false
                                 }
                             }
                         },
-                        enabled = !isTestingKey && apiKeyInput.isNotBlank(),
+                        enabled = !viewModel.isTestingKey && apiKeyInput.isNotBlank(),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        if (isTestingKey) {
+                        if (viewModel.isTestingKey) {
                             CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
                             Text("Testing…")
