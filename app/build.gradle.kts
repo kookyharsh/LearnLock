@@ -25,6 +25,10 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+ksp {
+  arg("moshi.generateKotlinDecls", "true")
+}
+
 android {
   namespace = "com.learnlock"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
