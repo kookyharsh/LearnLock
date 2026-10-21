@@ -2,7 +2,9 @@ package com.learnlock.feature.statistics
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.learnlock.data.entity.ConceptItem
 import com.learnlock.data.entity.QuestionHistory
+import com.learnlock.data.repository.ConceptRepository
 import com.learnlock.data.repository.HistoryRepository
 import com.learnlock.domain.LearningAnalytics
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -12,17 +14,34 @@ import java.util.Locale
 import javax.inject.Inject
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+
+enum class DayStatus {
+    CORRECT,
+    INCORRECT,
+    UNANSWERED,
+}
 
 data class CalendarDayItem(
     val epochDay: Long,
     val dayOfMonth: Int,
+    val dayOfWeek: Int, // 1 = Sun, 2 = Mon, ..., 7 = Sat
     val monthName: String,
     val dateFormatted: String,
     val completedQuizzes: Int,
     val earnedXp: Int,
     val intensity: Int, // 0 to 4
+    val correctCount: Int = 0,
+    val incorrectCount: Int = 0,
+    val totalAnswered: Int = 0,
+    val status: DayStatus = DayStatus.UNANSWERED,
+    val isFuture: Boolean = false,
+)
+
+data class MonthHeaderItem(
+    val monthName: String,
+    val columnIndex: Int,
 )
 
 data class MilestoneBadge(
@@ -35,6 +54,8 @@ data class MilestoneBadge(
 data class StatisticsUiState(
     val loading: Boolean = true,
     val calendarDays: List<CalendarDayItem> = emptyList(),
+    val weekColumns: List<List<CalendarDayItem?>> = emptyList(),
+    val monthHeaders: List<MonthHeaderItem> = emptyList(),
     val selectedDay: CalendarDayItem? = null,
     val totalQuizzesCompleted: Int = 0,
     val totalXpEarned: Int = 0,
@@ -42,6 +63,7 @@ data class StatisticsUiState(
     val bestStreak: Int = 0,
     val averageAccuracyPercent: Int = 0,
     val totalQuestionsAnswered: Int = 0,
+    val totalQuestionsCount: Int = 179,
     val correctAnswersCount: Int = 0,
     val learningDaysCount: Int = 0,
     val levelName: String = "Starter",
@@ -59,13 +81,20 @@ data class StatisticsUiState(
 @HiltViewModel
 class StatisticsViewModel @Inject constructor(
     private val historyRepository: HistoryRepository,
+    private val conceptRepository: ConceptRepository,
 ) : ViewModel() {
 
-    val uiState: StateFlow<StatisticsUiState> = historyRepository.getAllHistory()
-        .map { history -> computeState(history) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatisticsUiState())
+    val uiState: StateFlow<StatisticsUiState> = combine(
+        historyRepository.getAllHistory(),
+        conceptRepository.getAllConcepts(),
+    ) { history, concepts ->
+        computeState(history, concepts)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StatisticsUiState())
 
-    private fun computeState(history: List<QuestionHistory>): StatisticsUiState {
+    private fun computeState(
+        history: List<QuestionHistory>,
+        concepts: List<ConceptItem>,
+    ): StatisticsUiState {
         val sessions = history.filter { it.questionType == "SESSION_SUMMARY" }
         val gradedQuestions = history.filter {
             it.questionType != "SESSION_SUMMARY" && it.status != "GRADING_PENDING"
@@ -75,6 +104,7 @@ class StatisticsViewModel @Inject constructor(
         val correctQuestions = gradedQuestions.count { it.isCorrect }
         val totalQuestions = gradedQuestions.size
         val totalXp = correctQuestions * 10
+        val totalBankCount = concepts.size.coerceAtLeast(179)
 
         val accuracy = if (totalQuestions > 0) {
             ((correctQuestions.toFloat() / totalQuestions) * 100).toInt()
@@ -87,51 +117,92 @@ class StatisticsViewModel @Inject constructor(
         val uniqueDayEpochs = timestamps.map { LearningAnalytics.toLocalDayEpoch(it) }.distinct()
         val learningDays = uniqueDayEpochs.size
 
-        // Calendar grid: last 28 days (4 weeks) leading up to today
+        // Multi-week calendar grid (10 trailing weeks ending with current week)
         val now = System.currentTimeMillis()
         val dayFormat = SimpleDateFormat("MMM dd, yyyy", Locale.getDefault())
         val monthFormat = SimpleDateFormat("MMM", Locale.getDefault())
-        val dayList = mutableListOf<CalendarDayItem>()
-
         val oneDayMillis = 24L * 60 * 60 * 1000
         val todayEpoch = LearningAnalytics.toLocalDayEpoch(now)
 
-        for (i in 27 downTo 0) {
-            val targetEpoch = todayEpoch - (i * oneDayMillis)
-            val cal = Calendar.getInstance().apply { timeInMillis = targetEpoch }
-            val dayOfMonth = cal.get(Calendar.DAY_OF_MONTH)
-            val monthName = monthFormat.format(cal.time)
-            val dateFormatted = dayFormat.format(cal.time)
+        val calToday = Calendar.getInstance().apply { timeInMillis = now }
+        val dayOfWeekToday = calToday.get(Calendar.DAY_OF_WEEK) // SUNDAY=1 ... SATURDAY=7
+        val daysSinceSunday = dayOfWeekToday - Calendar.SUNDAY
+        val currentWeekSundayEpoch = todayEpoch - (daysSinceSunday * oneDayMillis)
 
-            val sessionsOnDay = sessions.filter {
-                LearningAnalytics.toLocalDayEpoch(it.answeredAt) == targetEpoch
+        val numWeeks = 10
+        val startSundayEpoch = currentWeekSundayEpoch - ((numWeeks - 1) * 7 * oneDayMillis)
+
+        val weekColumns = mutableListOf<List<CalendarDayItem?>>()
+        val allCalendarDays = mutableListOf<CalendarDayItem>()
+        val monthHeaders = mutableListOf<MonthHeaderItem>()
+        var lastMonthName = ""
+
+        for (col in 0 until numWeeks) {
+            val weekDays = mutableListOf<CalendarDayItem?>()
+            val colStartEpoch = startSundayEpoch + (col * 7 * oneDayMillis)
+            val calCol = Calendar.getInstance().apply { timeInMillis = colStartEpoch }
+            val colMonthName = monthFormat.format(calCol.time)
+
+            if (colMonthName != lastMonthName) {
+                monthHeaders.add(MonthHeaderItem(colMonthName, col))
+                lastMonthName = colMonthName
             }
-            val quizzesCount = sessionsOnDay.size
 
-            val questionsOnDay = gradedQuestions.filter {
-                LearningAnalytics.toLocalDayEpoch(it.answeredAt) == targetEpoch
+            for (row in 0..6) {
+                val targetEpoch = colStartEpoch + (row * oneDayMillis)
+                val cal = Calendar.getInstance().apply { timeInMillis = targetEpoch }
+                val dayOfMonth = cal.get(Calendar.DAY_OF_MONTH)
+                val monthName = monthFormat.format(cal.time)
+                val dateFormatted = dayFormat.format(cal.time)
+                val dayOfWeek = cal.get(Calendar.DAY_OF_WEEK)
+
+                if (targetEpoch > todayEpoch) {
+                    weekDays.add(null)
+                } else {
+                    val sessionsOnDay = sessions.filter {
+                        LearningAnalytics.toLocalDayEpoch(it.answeredAt) == targetEpoch
+                    }
+                    val questionsOnDay = gradedQuestions.filter {
+                        LearningAnalytics.toLocalDayEpoch(it.answeredAt) == targetEpoch
+                    }
+                    val correctCount = questionsOnDay.count { it.isCorrect }
+                    val incorrectCount = questionsOnDay.count { !it.isCorrect }
+                    val totalAnsweredOnDay = questionsOnDay.size
+                    val xpOnDay = correctCount * 10
+
+                    val status = when {
+                        totalAnsweredOnDay == 0 -> DayStatus.UNANSWERED
+                        correctCount > 0 -> DayStatus.CORRECT
+                        else -> DayStatus.INCORRECT
+                    }
+
+                    val intensity = when {
+                        sessionsOnDay.isEmpty() -> 0
+                        sessionsOnDay.size == 1 -> 1
+                        sessionsOnDay.size == 2 -> 2
+                        sessionsOnDay.size in 3..4 -> 3
+                        else -> 4
+                    }
+
+                    val item = CalendarDayItem(
+                        epochDay = targetEpoch,
+                        dayOfMonth = dayOfMonth,
+                        dayOfWeek = dayOfWeek,
+                        monthName = monthName,
+                        dateFormatted = dateFormatted,
+                        completedQuizzes = sessionsOnDay.size,
+                        earnedXp = xpOnDay,
+                        intensity = intensity,
+                        correctCount = correctCount,
+                        incorrectCount = incorrectCount,
+                        totalAnswered = totalAnsweredOnDay,
+                        status = status,
+                    )
+                    weekDays.add(item)
+                    allCalendarDays.add(item)
+                }
             }
-            val xpOnDay = questionsOnDay.count { it.isCorrect } * 10
-
-            val intensity = when {
-                quizzesCount == 0 -> 0
-                quizzesCount == 1 -> 1
-                quizzesCount == 2 -> 2
-                quizzesCount in 3..4 -> 3
-                else -> 4
-            }
-
-            dayList.add(
-                CalendarDayItem(
-                    epochDay = targetEpoch,
-                    dayOfMonth = dayOfMonth,
-                    monthName = monthName,
-                    dateFormatted = dateFormatted,
-                    completedQuizzes = quizzesCount,
-                    earnedXp = xpOnDay,
-                    intensity = intensity,
-                )
-            )
+            weekColumns.add(weekDays)
         }
 
         // Level & Progress
@@ -183,14 +254,17 @@ class StatisticsViewModel @Inject constructor(
 
         return StatisticsUiState(
             loading = false,
-            calendarDays = dayList,
-            selectedDay = dayList.lastOrNull(),
+            calendarDays = allCalendarDays,
+            weekColumns = weekColumns,
+            monthHeaders = monthHeaders,
+            selectedDay = allCalendarDays.lastOrNull(),
             totalQuizzesCompleted = totalQuizzes,
             totalXpEarned = totalXp,
             currentStreak = streakInfo.currentStreak,
             bestStreak = streakInfo.bestStreak,
             averageAccuracyPercent = accuracy,
             totalQuestionsAnswered = totalQuestions,
+            totalQuestionsCount = totalBankCount,
             correctAnswersCount = correctQuestions,
             learningDaysCount = learningDays,
             levelName = lvlName,
@@ -206,4 +280,3 @@ class StatisticsViewModel @Inject constructor(
         )
     }
 }
-

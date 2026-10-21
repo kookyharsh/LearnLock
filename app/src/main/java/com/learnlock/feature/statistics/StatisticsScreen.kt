@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -117,106 +118,179 @@ fun StatisticsScreen(
                 .padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            // 5.1 GitHub-Style Activity Calendar Card
+            // 5.1 Question History Activity Calendar Card
             Card(
                 colors = CardDefaults.cardColors(containerColor = colors.surfaceContainerHigh),
                 shape = RoundedCornerShape(20.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Column(modifier = Modifier.padding(18.dp)) {
+                Column(modifier = Modifier.padding(20.dp)) {
+                    // Header Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Icon(Icons.Default.CalendarMonth, contentDescription = null, tint = colors.primary, modifier = Modifier.size(20.dp))
-                            Text("Activity Heatmap", style = type.titleMedium, fontWeight = FontWeight.Bold)
-                        }
-                        Text("Past 28 Days", style = type.labelSmall, color = colors.onSurfaceVariant)
+                        Text(
+                            text = "Question History",
+                            style = type.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.onSurface,
+                        )
+                        Text(
+                            text = "${state.totalQuestionsAnswered} / ${state.totalQuestionsCount} ANSWERED",
+                            style = type.labelMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                        )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-                    // 4 rows x 7 days grid
-                    val weeks = state.calendarDays.chunked(7)
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    Text(
+                        text = "Tap a day to review your answer or try a question you haven't answered yet.",
+                        style = type.bodyMedium,
+                        color = colors.primary,
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Heatmap Grid with Y-axis day labels and X-axis month headers
+                    val dayLabels = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+                    val horizontalScrollState = rememberScrollState()
+
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.Top,
                     ) {
-                        weeks.forEach { week ->
-                            Row(
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                week.forEach { day ->
-                                    val isSelected = selectedDay?.epochDay == day.epochDay
-                                    val cellColor = when (day.intensity) {
-                                        0 -> colors.surfaceContainerHighest
-                                        1 -> Color(0xFFA5D6A7) // Light green
-                                        2 -> Color(0xFF66BB6A) // Medium green
-                                        3 -> Color(0xFF2E7D32) // Dark green
-                                        else -> Color(0xFF1B5E20) // Deep forest green
-                                    }
+                        // Left Y-Axis day labels
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            modifier = Modifier.padding(top = 22.dp, end = 8.dp),
+                        ) {
+                            dayLabels.forEach { label ->
+                                Box(
+                                    modifier = Modifier.height(28.dp),
+                                    contentAlignment = Alignment.CenterStart,
+                                ) {
+                                    Text(
+                                        text = label,
+                                        style = type.labelSmall,
+                                        color = colors.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        }
 
+                        // Scrollable Grid of Week Columns
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .horizontalScroll(horizontalScrollState),
+                        ) {
+                            // Month Headers Row above columns
+                            Box(
+                                modifier = Modifier
+                                    .height(18.dp)
+                                    .fillMaxWidth(),
+                            ) {
+                                state.monthHeaders.forEach { header ->
+                                    val leftOffset = (header.columnIndex * (28 + 4)).dp
                                     Box(
-                                        contentAlignment = Alignment.Center,
-                                        modifier = Modifier
-                                            .size(38.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(cellColor)
-                                            .then(
-                                                if (isSelected) {
-                                                    Modifier.border(2.dp, colors.primary, RoundedCornerShape(8.dp))
-                                                } else Modifier
-                                            )
-                                            .clickable { selectedDay = day },
+                                        modifier = Modifier.padding(start = leftOffset),
                                     ) {
                                         Text(
-                                            text = day.dayOfMonth.toString(),
+                                            text = header.monthName,
                                             style = type.labelSmall,
-                                            fontWeight = if (day.completedQuizzes > 0) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (day.intensity >= 2) Color.White else colors.onSurface,
+                                            fontWeight = FontWeight.Medium,
+                                            color = colors.onSurfaceVariant,
                                         )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            // Grid of week columns
+                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                state.weekColumns.forEach { week ->
+                                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        week.forEach { day ->
+                                            if (day == null) {
+                                                Box(modifier = Modifier.size(28.dp))
+                                            } else {
+                                                val isSelected = selectedDay?.epochDay == day.epochDay
+                                                val cellColor = when (day.status) {
+                                                    DayStatus.CORRECT -> Color(0xFF22C55E) // Green
+                                                    DayStatus.INCORRECT -> Color(0xFFEF4444) // Red
+                                                    DayStatus.UNANSWERED -> colors.surfaceContainerHighest
+                                                }
+
+                                                Box(
+                                                    contentAlignment = Alignment.Center,
+                                                    modifier = Modifier
+                                                        .size(28.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(cellColor)
+                                                        .then(
+                                                            if (isSelected) {
+                                                                Modifier.border(2.dp, colors.primary, RoundedCornerShape(6.dp))
+                                                            } else Modifier
+                                                        )
+                                                        .clickable { selectedDay = day },
+                                                ) {}
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(20.dp))
 
-                    // Legend
+                    // Legend Row
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("Less", style = type.labelSmall, color = colors.onSurfaceVariant)
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            listOf(
-                                colors.surfaceContainerHighest,
-                                Color(0xFFA5D6A7),
-                                Color(0xFF66BB6A),
-                                Color(0xFF2E7D32),
-                                Color(0xFF1B5E20),
-                            ).forEach { c ->
-                                Box(
-                                    modifier = Modifier
-                                        .size(12.dp)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(c)
-                                )
-                            }
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFF22C55E))
+                            )
+                            Text("Correct", style = type.labelSmall, color = colors.onSurfaceVariant)
                         }
-                        Text("More", style = type.labelSmall, color = colors.onSurfaceVariant)
+
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(Color(0xFFEF4444))
+                            )
+                            Text("Incorrect", style = type.labelSmall, color = colors.onSurfaceVariant)
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Box(
+                                modifier = Modifier
+                                    .size(14.dp)
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .background(colors.surfaceContainerHighest)
+                            )
+                            Text("Unanswered", style = type.labelSmall, color = colors.onSurfaceVariant)
+                        }
                     }
 
                     // Selected day inspector
                     selectedDay?.let { day ->
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
                         HorizontalDivider()
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
@@ -225,15 +299,16 @@ fun StatisticsScreen(
                             Column {
                                 Text(day.dateFormatted, style = type.labelMedium, fontWeight = FontWeight.Bold, color = colors.onSurface)
                                 Text(
-                                    if (day.completedQuizzes == 0) "No quizzes completed on this day" else "${day.completedQuizzes} completed · +${day.earnedXp} XP",
+                                    if (day.totalAnswered == 0) "No questions answered on this day"
+                                    else "${day.correctCount} correct · ${day.incorrectCount} incorrect",
                                     style = type.bodySmall,
                                     color = colors.onSurfaceVariant,
                                 )
                             }
-                            if (day.completedQuizzes > 0) {
+                            if (day.totalAnswered > 0) {
                                 Surface(shape = RoundedCornerShape(8.dp), color = colors.primaryContainer) {
                                     Text(
-                                        "${day.completedQuizzes} Quizzes",
+                                        "${day.totalAnswered} Answered",
                                         style = type.labelSmall,
                                         fontWeight = FontWeight.Bold,
                                         color = colors.onPrimaryContainer,

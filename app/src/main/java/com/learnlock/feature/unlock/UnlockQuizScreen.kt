@@ -949,7 +949,7 @@ fun UnlockQuizScreen(
                                 onClick = {
                                     coroutineScope.launch {
                                         try {
-                                            quizResult = viewModel.submit(
+                                            viewModel.submit(
                                                 questions = questionsList,
                                                 selectedOptionIndices = selectedOptionIndices,
                                                 multiSelections = multiSelections,
@@ -962,8 +962,10 @@ fun UnlockQuizScreen(
                                                 concept = currentConcept,
                                                 pendingRetryItem = pendingRetryItem,
                                             )
+                                            onDismiss()
                                         } catch (e: Exception) {
                                             android.util.Log.e("UnlockQuizScreen", "Error submitting quiz", e)
+                                            onDismiss()
                                         }
                                     }
                                 },
@@ -998,14 +1000,6 @@ fun UnlockQuizScreen(
                 Spacer(modifier = Modifier.height(24.dp))
             }
         }
-            quizResult?.let { result ->
-                QuizResultSheet(
-                    result = result,
-                    onUnlock = onDismiss,
-                    onRetry = retryQuiz,
-                    onClose = requestDismiss,
-                )
-            }
         }
     }
 }
