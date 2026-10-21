@@ -117,6 +117,16 @@ class AdaptiveSchedulerTest {
     }
 
     @Test
+    fun mastery_handlesMismatchedListSizesGracefully() {
+        val score = AdaptiveScheduler.computeMastery(
+            results = listOf(true, true, false),
+            timestamps = listOf(now - day, now),
+            now = now
+        )
+        assertTrue("mastery should calculate score without throwing exception for mismatched list sizes", score > 0.0)
+    }
+
+    @Test
     fun resolveDifficulty_strongMasteryRaisesLevel() {
         assertEquals("Hard", AdaptiveScheduler.resolveDifficulty("Medium", 0.9, 0))
     }

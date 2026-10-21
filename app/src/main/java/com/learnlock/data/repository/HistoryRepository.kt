@@ -1,5 +1,6 @@
 package com.learnlock.data.repository
 
+import com.learnlock.data.dao.ConceptAttemptResult
 import com.learnlock.data.dao.HistoryDao
 import com.learnlock.data.entity.QuestionHistory
 import javax.inject.Inject
@@ -59,6 +60,9 @@ class HistoryRepository @Inject constructor(
 
     suspend fun getRecentConceptTitles(sinceTime: Long): List<String> =
         historyDao.getRecentConceptTitles(sinceTime)
+
+    suspend fun getRecentResultsForConcept(topic: String, conceptTitle: String, limit: Int): List<ConceptAttemptResult> =
+        historyDao.getRecentResultsForConcept(topic, conceptTitle, limit)
 
     suspend fun getRecentCorrectnessForConcept(topic: String, conceptTitle: String, limit: Int): List<Boolean> =
         historyDao.getRecentCorrectnessForConcept(topic, conceptTitle, limit)

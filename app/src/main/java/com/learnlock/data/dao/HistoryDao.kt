@@ -15,6 +15,11 @@ data class TopicAccuracy(
     val total: Int
 )
 
+data class ConceptAttemptResult(
+    val isCorrect: Boolean,
+    val answeredAt: Long
+)
+
 @Dao
 interface HistoryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -80,10 +85,13 @@ interface HistoryDao {
     @Query("SELECT topic, SUM(CASE WHEN isCorrect = 1 THEN 1 ELSE 0 END) AS correct, COUNT(*) AS total FROM question_history WHERE questionType != 'SESSION_SUMMARY' AND status != 'GRADING_PENDING' GROUP BY topic")
     suspend fun getTopicAccuracy(): List<TopicAccuracy>
 
-    @Query("SELECT isCorrect FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle AND questionType != 'SESSION_SUMMARY' AND status != 'GRADING_PENDING' ORDER BY answeredAt DESC LIMIT :limit")
+    @Query("SELECT isCorrect, answeredAt FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle AND questionType != 'SESSION_SUMMARY' AND status != 'GRADING_PENDING' ORDER BY answeredAt DESC, id DESC LIMIT :limit")
+    suspend fun getRecentResultsForConcept(topic: String, conceptTitle: String, limit: Int): List<ConceptAttemptResult>
+
+    @Query("SELECT isCorrect FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle AND questionType != 'SESSION_SUMMARY' AND status != 'GRADING_PENDING' ORDER BY answeredAt DESC, id DESC LIMIT :limit")
     suspend fun getRecentCorrectnessForConcept(topic: String, conceptTitle: String, limit: Int): List<Boolean>
 
-    @Query("SELECT answeredAt FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle AND questionType != 'SESSION_SUMMARY' AND status != 'GRADING_PENDING' ORDER BY answeredAt DESC LIMIT :limit")
+    @Query("SELECT answeredAt FROM question_history WHERE topic = :topic AND conceptTitle = :conceptTitle AND questionType != 'SESSION_SUMMARY' AND status != 'GRADING_PENDING' ORDER BY answeredAt DESC, id DESC LIMIT :limit")
     suspend fun getRecentTimestampsForConcept(topic: String, conceptTitle: String, limit: Int): List<Long>
 
     @Query("SELECT COUNT(*) FROM question_history WHERE status = 'RETRY_PENDING' AND topic = :topic")

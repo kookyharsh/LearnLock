@@ -385,10 +385,10 @@ class UnlockQuizViewModel @Inject constructor(
                         passed = objectivePassed,
                         now = answeredAt,
                     )
-                    val recentCorrect = db.historyDao()
-                        .getRecentCorrectnessForConcept(topic, title, 10)
-                    val recentTimes = db.historyDao()
-                        .getRecentTimestampsForConcept(topic, title, 10)
+                    val recentResults = db.historyDao()
+                        .getRecentResultsForConcept(topic, title, 10)
+                    val recentCorrect = recentResults.map { it.isCorrect }
+                    val recentTimes = recentResults.map { it.answeredAt }
                     val mastery = AdaptiveScheduler.computeMastery(recentCorrect, recentTimes, answeredAt)
                     db.conceptDao().updateReviewState(
                         id = concept.id,
