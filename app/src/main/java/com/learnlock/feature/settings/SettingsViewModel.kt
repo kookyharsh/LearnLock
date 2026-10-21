@@ -7,9 +7,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.learnlock.data.preferences.AppPreferencesManager
 import com.learnlock.data.preferences.ThemeMode
+import com.learnlock.data.remote.ai.ConceptGenerator
+import com.learnlock.data.remote.update.UpdateInfo
 import com.learnlock.data.repository.ConceptRepository
 import com.learnlock.data.repository.HistoryRepository
-import com.learnlock.data.remote.ai.ConceptGenerator
+import com.learnlock.data.repository.UpdateRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
@@ -45,6 +47,7 @@ class SettingsViewModel @Inject constructor(
     private val prefs: AppPreferencesManager,
     private val conceptRepository: ConceptRepository,
     private val historyRepository: HistoryRepository,
+    private val updateRepository: UpdateRepository,
 ) : ViewModel() {
 
     val initial = SettingsInitial(
@@ -73,6 +76,15 @@ class SettingsViewModel @Inject constructor(
     var keyTestError by mutableStateOf<String?>(null)
         private set
 
+    var isCheckingUpdate by mutableStateOf(false)
+        private set
+
+    var updateInfo by mutableStateOf<UpdateInfo?>(null)
+        private set
+
+    var updateCheckError by mutableStateOf<String?>(null)
+        private set
+
     init {
         loadCounts()
     }
@@ -88,6 +100,28 @@ class SettingsViewModel @Inject constructor(
                 // Counts are informational; the screen works without them.
             }
         }
+    }
+
+    fun checkForAppUpdate(onResult: (UpdateInfo?) -> Unit = {}) {
+        if (isCheckingUpdate) return
+        isCheckingUpdate = true
+        updateCheckError = null
+        viewModelScope.launch {
+            val result = updateRepository.checkForUpdate()
+            isCheckingUpdate = false
+            result.onSuccess { info ->
+                updateInfo = info
+                onResult(info)
+            }.onFailure { err ->
+                updateCheckError = err.message ?: "Failed to check for updates"
+                onResult(null)
+            }
+        }
+    }
+
+    fun clearUpdateInfo() {
+        updateInfo = null
+        updateCheckError = null
     }
 
     fun setApiKey(value: String) {

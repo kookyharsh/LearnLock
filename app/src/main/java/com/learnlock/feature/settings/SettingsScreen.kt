@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -45,7 +46,9 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Quiz
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Tune
+import com.learnlock.data.remote.update.UpdateInstaller
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Warning
@@ -569,16 +572,99 @@ fun SettingsScreen(
                 )
             }
 
-            // Group 7: About
-            SettingsGroup(title = "About") {
+            // Group 7: About & Updates
+            SettingsGroup(title = "About & Updates") {
                 SettingActionItem(
                     icon = Icons.Default.Info,
                     title = "LearnLock",
-                    description = "Version 2.0",
+                    description = "Version ${com.learnlock.BuildConfig.VERSION_NAME}",
                     onClick = null,
+                )
+                SettingActionItem(
+                    icon = Icons.Default.SystemUpdate,
+                    title = "Check for Updates",
+                    description = if (viewModel.isCheckingUpdate) "Checking GitHub..." else "Look for new releases on GitHub",
+                    onClick = {
+                        viewModel.checkForAppUpdate { info ->
+                            if (info == null && viewModel.updateCheckError != null) {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("Update check failed: ${viewModel.updateCheckError}")
+                                }
+                            } else if (info != null && !info.isUpdateAvailable) {
+                                coroutineScope.launch {
+                                    snackbarHostState.showSnackbar("LearnLock is up to date (v${info.currentVersion})")
+                                }
+                            }
+                        }
+                    },
                 )
             }
         }
+    }
+
+    val updateInfo = viewModel.updateInfo
+    if (updateInfo != null && updateInfo.isUpdateAvailable) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearUpdateInfo() },
+            icon = { Icon(Icons.Default.SystemUpdate, contentDescription = null, tint = colors.primary) },
+            title = { Text("Update Available: v${updateInfo.latestVersion}") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("A new version of LearnLock is available on GitHub.", style = MaterialTheme.typography.bodyMedium)
+                    if (!updateInfo.releaseNotes.isNullOrBlank()) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = colors.surfaceContainerHighest,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 160.dp),
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .padding(12.dp)
+                                    .verticalScroll(rememberScrollState()),
+                            ) {
+                                Text("Release Notes:", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(updateInfo.releaseNotes, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val apkUrl = updateInfo.apkUrl
+                        if (apkUrl != null) {
+                            UpdateInstaller.downloadAndInstallApk(
+                                context = context,
+                                apkUrl = apkUrl,
+                                versionName = updateInfo.latestVersion,
+                                onDownloadStarted = {
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Downloading update v${updateInfo.latestVersion}...")
+                                    }
+                                    viewModel.clearUpdateInfo()
+                                },
+                                onError = { err ->
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("Download failed: $err")
+                                    }
+                                },
+                            )
+                        }
+                    },
+                ) {
+                    Text("Download & Install")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.clearUpdateInfo() }) {
+                    Text("Later")
+                }
+            },
+        )
     }
 
     AppearanceBottomSheet(

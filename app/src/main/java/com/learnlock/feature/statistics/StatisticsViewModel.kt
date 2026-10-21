@@ -170,9 +170,15 @@ class StatisticsViewModel @Inject constructor(
                     val totalAnsweredOnDay = questionsOnDay.size
                     val xpOnDay = correctCount * 10
 
+                    val sessionCorrectCount = sessionsOnDay.count { it.isCorrect }
+                    val totalSessionCount = sessionsOnDay.size
+
+                    val effectiveTotal = if (totalAnsweredOnDay > 0) totalAnsweredOnDay else totalSessionCount
+                    val effectiveCorrect = if (totalAnsweredOnDay > 0) correctCount else sessionCorrectCount
+
                     val status = when {
-                        totalAnsweredOnDay == 0 -> DayStatus.UNANSWERED
-                        correctCount > 0 -> DayStatus.CORRECT
+                        effectiveTotal == 0 -> DayStatus.UNANSWERED
+                        effectiveCorrect > 0 -> DayStatus.CORRECT
                         else -> DayStatus.INCORRECT
                     }
 
